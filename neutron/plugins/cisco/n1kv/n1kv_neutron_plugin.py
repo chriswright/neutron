@@ -24,7 +24,6 @@ import eventlet
 from oslo.config import cfg as q_conf
 
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
-from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
@@ -36,13 +35,11 @@ from neutron.db import agentschedulers_db
 from neutron.db import db_base_plugin_v2
 from neutron.db import dhcp_rpc_base
 from neutron.db import external_net_db
-from neutron.db import extraroute_db
-from neutron.db import l3_agentschedulers_db
-from neutron.db import l3_rpc_base
 from neutron.db import portbindings_db
+from neutron.db import quota_db
 from neutron.extensions import portbindings
 from neutron.extensions import providernet
-from neutron.openstack.common import importutils
+from neutron import manager
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
 from neutron.openstack.common import uuidutils as uuidutils
@@ -60,8 +57,8 @@ from neutron.plugins.common import constants as svc_constants
 LOG = logging.getLogger(__name__)
 
 
-class N1kvRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
-                       l3_rpc_base.L3RpcCallbackMixin):
+class N1kvRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin):
+#                       l3_rpc_base.L3RpcCallbackMixin):
 
     """Class to handle agent RPC calls."""
 
@@ -80,12 +77,11 @@ class N1kvRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
 
 class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                           external_net_db.External_net_db_mixin,
-                          extraroute_db.ExtraRoute_db_mixin,
                           portbindings_db.PortBindingMixin,
                           n1kv_db_v2.NetworkProfile_db_mixin,
                           n1kv_db_v2.PolicyProfile_db_mixin,
                           network_db_v2.Credential_db_mixin,
-                          l3_agentschedulers_db.L3AgentSchedulerDbMixin,
+                          agentschedulers_db.AgentSchedulerDbMixin,
                           agentschedulers_db.DhcpAgentSchedulerDbMixin):
 
     """
@@ -101,9 +97,8 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
     __native_bulk_support = False
     supported_extension_aliases = ["provider", "agent",
                                    "n1kv", "network_profile",
-                                   "policy_profile", "external-net", "router",
-                                   "binding", "credential",
-                                   "l3_agent_scheduler",
+                                   "policy_profile", "external-net",
+                                   "binding", "credential", "quotas"]
                                    "dhcp_agent_scheduler"]
 
     def __init__(self, configfile=None):
@@ -127,20 +122,15 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         self.network_scheduler = importutils.import_object(
             q_conf.CONF.network_scheduler_driver
         )
-        self.router_scheduler = importutils.import_object(
-            q_conf.CONF.router_scheduler_driver
-        )
 
     def _setup_rpc(self):
         # RPC support
-        self.service_topics = {svc_constants.CORE: topics.PLUGIN,
-                               svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
+        self.service_topics = {svc_constants.CORE: topics.PLUGIN}
         self.conn = rpc.create_connection(new=True)
         self.dispatcher = N1kvRpcCallbacks().create_rpc_dispatcher()
         for svc_topic in self.service_topics.values():
             self.conn.create_consumer(svc_topic, self.dispatcher, fanout=False)
         self.dhcp_agent_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
-        self.l3_agent_notifier = l3_rpc_agent_api.L3AgentNotify
         # Consume from all consumers in a thread
         self.conn.consume_in_thread()
 
@@ -1217,12 +1207,13 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         """
         # if needed, check to see if this is a port owned by
         # and l3-router.  If so, we should prevent deletion.
-        if l3_port_check:
-            self.prevent_l3_port_deletion(context, id)
-        with context.session.begin(subtransactions=True):
-            self.disassociate_floatingips(context, id)
-            self._send_delete_port_request(context, id)
-            super(N1kvNeutronPluginV2, self).delete_port(context, id)
+        l3plugin = manager.NeutronManager.get_service_plugins().get(
+            svc_constants.L3_ROUTER_NAT)
+        if l3plugin and l3_port_check:
+            l3plugin.prevent_l3_port_deletion(context, id)
+            l3plugin.disassociate_floatingips(context, id)
+        self._send_delete_port_request(context, id)
+        return super(N1kvNeutronPluginV2, self).delete_port(context, id)
 
     def get_port(self, context, id, fields=None):
         """
@@ -1408,21 +1399,4 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                             net_profile_id,
                                             network_profile))
             self._send_update_network_profile_request(net_p)
-            return net_p
-
-    def create_router(self, context, router):
-        """
-        Handle creation of router.
-
-        Schedule router to L3 agent as part of the create handling.
-        :param context: neutron api request context
-        :param router: router dictionary
-        :returns: router object
-        """
-        session = context.session
-        with session.begin(subtransactions=True):
-            rtr = (super(N1kvNeutronPluginV2, self).
-                   create_router(context, router))
-            LOG.debug(_("Scheduling router %s"), rtr['id'])
-            self.schedule_router(context, rtr['id'])
-        return rtr
+        return net_p

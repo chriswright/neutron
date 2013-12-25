@@ -103,3 +103,49 @@ LOGICAL_NETWORK_SUFFIX = '_log_net'
 ENCAPSULATION_PROFILE_SUFFIX = '_profile'
 
 UUID_LENGTH = 36
+
+
+# Type and topic for Cisco cfg agent
+# ==================================
+AGENT_TYPE_CFG = 'Cisco cfg agent'
+
+# Topic for Cisco configuration agent
+CFG_AGENT = 'cisco_cfg_agent'
+
+
+# Device manager and (hosting) devices
+# ====================================
+# Default name of hosting device template for network nodes
+# hosting Linux network namespace-based Neutron routers.
+NETWORK_NODE_TEMPLATE = 'NetworkNode_template'
+
+# Service VM status
+SVM_OK = 'OK'
+SVM_ERROR = 'ERROR'
+SVM_NON_RESPONSIVE = 'NON_RESPONSIVE'
+
+
+# Routing service
+# ==============
+# Default name of router type for Neutron routers implemented
+# as Linux network namespaces in network nodes.
+NAMESPACE_ROUTER_TYPE = 'NetworkNamespace_router'
+
+# Default name of router type for Neutron routers implemented
+# as Linux network namespaces in network nodes.
+CSR1KV_ROUTER_TYPE = 'CSR1kv_router'
+
+# The status of a Neutron Router created using the
+# Cisco service plugin is one of the following:
+# Created but not scheduled nor deployed
+ROUTER_PENDING_CREATE = "PENDING_CREATE"
+#  Scheduling in progress
+ROUTER_SCHEDULING = 'SCHEDULING'
+# Backlogged due to unsuccessful scheduling attempt
+ROUTER_BACKLOGGED = 'BACKLOGGED'
+# Backlogged due to non-ready hosting device (e.g., still booting)
+ROUTER_WAITING_HOST = 'AWAITING_HOST'
+# Deployed and configured
+ROUTER_ACTIVE = "ACTIVE"
+# Deletion in progress (by cfg agent)
+ROUTER_PENDING_DELETE = "PENDING_DELETE"

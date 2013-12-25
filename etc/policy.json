@@ -126,6 +126,16 @@
     "get_policy_profiles": "",
     "get_policy_profile": "",
 
+    "create_hosting_device": "rule:admin_only",
+    "get_hosting_device": "rule:admin_only",
+    "update_hosting_device": "rule:admin_only",
+    "delete_hosting_device": "rule:admin_only",
+
+    "create_hosting_device_template": "rule:admin_only",
+    "get_hosting_device_template": "rule:admin_only",
+    "update_hosting_device_template": "rule:admin_only",
+    "delete_hosting_device_template": "rule:admin_only",
+
     "create_metering_label": "rule:admin_only",
     "delete_metering_label": "rule:admin_only",
     "get_metering_label": "rule:admin_only",

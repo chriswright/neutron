@@ -30,6 +30,7 @@ DHCP = 'q-dhcp-notifer'
 FIREWALL_PLUGIN = 'q-firewall-plugin'
 METERING_PLUGIN = 'q-metering-plugin'
 LOADBALANCER_PLUGIN = 'n-lbaas-plugin'
+DEVICE_MANAGER_PLUGIN = 'n-devmgr-plugin'
 
 L3_AGENT = 'l3_agent'
 DHCP_AGENT = 'dhcp_agent'
