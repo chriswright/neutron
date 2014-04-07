@@ -19,7 +19,6 @@ import netaddr
 import sys
 import time
 
-
 from oslo.config import cfg
 
 from neutron.agent.common import config
@@ -163,7 +162,6 @@ class CiscoCfgAgent(manager.Manager):
 
     def __init__(self, host, conf=None):
         self.conf = conf or cfg.CONF
-        self.context = n_context.get_admin_context_without_session()
         #Flags
         self.fullsync = True
         self.sync_progress = False
@@ -176,8 +174,6 @@ class CiscoCfgAgent(manager.Manager):
 
         #Other references held by the cfg agent
         self._hdm = HostingDevicesManager()
-        self._initialize_plugin_rpc(host)
-        self._agent_registration()
         self._initialize_service_helpers()
         self._start_periodic_tasks()
         super(CiscoCfgAgent, self).__init__(host=self.conf.host)
@@ -186,8 +182,8 @@ class CiscoCfgAgent(manager.Manager):
         self.routing_service_helper = RoutingServiceHelper(self)
 
     def _initialize_plugin_rpc(self, host):
-        self.devmgr_rpc = CiscoDeviceManagerPluginApi(c_constants.CFG_AGENT,
-                                                      host)
+        self.devmgr_rpc = CiscoDeviceManagerPluginApi(
+            topics.DEVICE_MANAGER_PLUGIN, host)
         self.plugin_rpc = CiscoRoutingPluginApi(topics.L3PLUGIN, host)
 
     def _agent_registration(self):
@@ -195,14 +191,14 @@ class CiscoCfgAgent(manager.Manager):
         if res is True:
             LOG.info(_("[Agent registration] Agent successfully registered"))
         elif res is False:
-            LOG.info(_("[Agent registration] Neutron server said that "
+            LOG.warn(_("[Agent registration] Neutron server said that "
                        "device manager was not ready. Retrying in %d "
                        "seconds "), REGISTRATION_RETRY_DELAY)
             time.sleep(REGISTRATION_RETRY_DELAY)
             self._agent_registration()
         elif res is None:
-            LOG.info(_("[Agent registration] Neutron server said that no "
-                       "device manager was found. Exiting Agent"))
+            LOG.error(_("[Agent registration] Neutron server said that no "
+                        "device manager was found. Exiting Agent"))
             sys.exit(1)
 
     def _start_periodic_tasks(self):
@@ -789,22 +785,22 @@ class RoutingServiceHelper(object):
 class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
 
     def __init__(self, host, conf=None):
-        super(CiscoCfgAgentWithStateReport, self).__init__(host=host,
-                                                           conf=conf)
         self.state_rpc = agent_rpc.PluginReportStateAPI(topics.PLUGIN)
         self.agent_state = {
             'binary': 'neutron-cisco-cfg-agent',
             'host': host,
             'topic': c_constants.CFG_AGENT,
-            'configurations': {
-                'hosting_device_drivers': {
-                    c_constants.CSR1KV_HOST:
-                    'neutron.plugins.cisco.l3.agent.csr1000v.'
-                    'cisco_csr_network_driver.CSR1000vRoutingDriver'}},
+            'configurations': {},
             'start_flag': True,
             'agent_type': c_constants.AGENT_TYPE_CFG}
         report_interval = cfg.CONF.AGENT.report_interval
+        self.context = n_context.get_admin_context_without_session()
         self.use_call = True
+        self.send_agent_report(self.agent_state)
+        self._initialize_plugin_rpc(host)
+        self._agent_registration()
+        super(CiscoCfgAgentWithStateReport, self).__init__(host=host,
+                                                           conf=conf)
         if report_interval:
             self.heartbeat = loopingcall.FixedIntervalLoopingCall(
                 self._report_state)
@@ -850,20 +846,22 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
         configurations['total floating_ips'] = num_floating_ips
         configurations['hosting_devices'] = routers_per_hd
         configurations['non_responding_hosting_devices'] = non_responding
+        self.send_agent_report(self.agent_state)
+
+    def send_agent_report(self, report):
         try:
-            self.state_rpc.report_state(self.context, self.agent_state,
-                                        self.use_call)
-            self.agent_state.pop('start_flag', None)
+            self.state_rpc.report_state(self.context, report, self.use_call)
+            report.pop('start_flag', None)
             self.use_call = False
-            LOG.debug(_("Report state task successfully completed"))
+            LOG.debug(_("Send agent report successfully completed"))
         except AttributeError:
             # This means the server does not support report_state
-            LOG.warn(_("Neutron server does not support state report."
-                       " State report for this agent will be disabled."))
+            LOG.warn(_("Neutron server does not support state report. "
+                       "State report for this agent will be disabled."))
             self.heartbeat.stop()
             return
         except Exception:
-            LOG.exception(_("Failed reporting state!"))
+            LOG.exception(_("Failed sending agent report!"))
 
     def agent_updated(self, context, payload):
         """Handle the agent_updated notification event.
