@@ -797,7 +797,7 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
             if res is True:
                 LOG.info(_("[Agent registration] Agent successfully "
                            "registered"))
-                break
+                return
             elif res is False:
                 LOG.warn(_("[Agent registration] Neutron server said that "
                            "device manager was not ready. Retrying in %d "
@@ -805,8 +805,11 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
                 time.sleep(REGISTRATION_RETRY_DELAY)
             elif res is None:
                 LOG.error(_("[Agent registration] Neutron server said that no "
-                            "device manager was found. Exiting Agent"))
+                            "device manager was found. Exiting!"))
                 sys.exit(1)
+        LOG.error(_("[Agent registration] %d unsuccessful registration "
+                    "attempts. Exiting!"), MAX_REGISTRATION_ATTEMPTS)
+        sys.exit(1)
 
     def _report_state(self):
         """Report state back to the plugin.
