@@ -22,10 +22,8 @@ from neutron.agent.linux import utils as linux_utils
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import timeutils
-
-from neutron.plugins.cisco.cfg_agent.router_info import RouterInfo
 from neutron.plugins.cisco.cfg_agent import cfg_exceptions
-from neutron.plugins.cisco.common import cisco_constants as c_constants
+from neutron.plugins.cisco.cfg_agent.router_info import RouterInfo
 
 LOG = logging.getLogger(__name__)
 

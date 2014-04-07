@@ -53,6 +53,7 @@ LOG = logging.getLogger(__name__)
 REGISTRATION_RETRY_DELAY = 2
 MAX_REGISTRATION_ATTEMPTS = 20
 
+
 class CiscoDeviceManagerPluginApi(proxy.RpcProxy):
     """Agent side of the device manager RPC API."""
 
