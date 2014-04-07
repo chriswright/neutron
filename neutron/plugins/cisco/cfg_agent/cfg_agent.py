@@ -49,9 +49,9 @@ from neutron import service as neutron_service
 LOG = logging.getLogger(__name__)
 
 
-# Time to wait before registration retry.
+# Constants for agent registration.
 REGISTRATION_RETRY_DELAY = 2
-
+MAX_REGISTRATION_ATTEMPTS = 20
 
 class CiscoDeviceManagerPluginApi(proxy.RpcProxy):
     """Agent side of the device manager RPC API."""
@@ -185,22 +185,6 @@ class CiscoCfgAgent(manager.Manager):
         self.devmgr_rpc = CiscoDeviceManagerPluginApi(
             topics.DEVICE_MANAGER_PLUGIN, host)
         self.plugin_rpc = CiscoRoutingPluginApi(topics.L3PLUGIN, host)
-
-    def _agent_registration(self):
-        self.send_agent_report(self.agent_state)
-        res = self.devmgr_rpc.register_for_duty(self.context)
-        if res is True:
-            LOG.info(_("[Agent registration] Agent successfully registered"))
-        elif res is False:
-            LOG.warn(_("[Agent registration] Neutron server said that "
-                       "device manager was not ready. Retrying in %d "
-                       "seconds "), REGISTRATION_RETRY_DELAY)
-            time.sleep(REGISTRATION_RETRY_DELAY)
-            self._agent_registration()
-        elif res is None:
-            LOG.error(_("[Agent registration] Neutron server said that no "
-                        "device manager was found. Exiting Agent"))
-            sys.exit(1)
 
     def _start_periodic_tasks(self):
         self.rpc_loop = loopingcall.FixedIntervalLoopingCall(self._rpc_loop)
@@ -797,7 +781,6 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
         report_interval = cfg.CONF.AGENT.report_interval
         self.context = n_context.get_admin_context_without_session()
         self.use_call = True
-#        self.send_agent_report(self.agent_state)
         self._initialize_plugin_rpc(host)
         self._agent_registration()
         super(CiscoCfgAgentWithStateReport, self).__init__(host=host,
@@ -806,6 +789,24 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
             self.heartbeat = loopingcall.FixedIntervalLoopingCall(
                 self._report_state)
             self.heartbeat.start(interval=report_interval)
+
+    def _agent_registration(self):
+        for attempts in xrange(MAX_REGISTRATION_ATTEMPTS):
+            #self.send_agent_report(self.agent_state)
+            res = self.devmgr_rpc.register_for_duty(self.context)
+            if res is True:
+                LOG.info(_("[Agent registration] Agent successfully "
+                           "registered"))
+                break
+            elif res is False:
+                LOG.warn(_("[Agent registration] Neutron server said that "
+                           "device manager was not ready. Retrying in %d "
+                           "seconds "), REGISTRATION_RETRY_DELAY)
+                time.sleep(REGISTRATION_RETRY_DELAY)
+            elif res is None:
+                LOG.error(_("[Agent registration] Neutron server said that no "
+                            "device manager was found. Exiting Agent"))
+                sys.exit(1)
 
     def _report_state(self):
         """Report state back to the plugin.
