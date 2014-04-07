@@ -187,6 +187,7 @@ class CiscoCfgAgent(manager.Manager):
         self.plugin_rpc = CiscoRoutingPluginApi(topics.L3PLUGIN, host)
 
     def _agent_registration(self):
+        self.send_agent_report(self.agent_state)
         res = self.devmgr_rpc.register_for_duty(self.context)
         if res is True:
             LOG.info(_("[Agent registration] Agent successfully registered"))
@@ -796,7 +797,7 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
         report_interval = cfg.CONF.AGENT.report_interval
         self.context = n_context.get_admin_context_without_session()
         self.use_call = True
-        self.send_agent_report(self.agent_state)
+#        self.send_agent_report(self.agent_state)
         self._initialize_plugin_rpc(host)
         self._agent_registration()
         super(CiscoCfgAgentWithStateReport, self).__init__(host=host,
