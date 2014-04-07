@@ -26,17 +26,21 @@ class DriverException(exceptions.NeutronException):
 class CSR1kvInitializationException(DriverException):
     """Exception when initialization of CSR1kv Routing Driver object."""
     message = (_("Critical device parameter missing. Failed initializing "
-                 "CSR1kvRoutingDriver"))
+                 "CSR1kv routing driver"))
 
 
 class CSR1kvConnectionException(DriverException):
     """Connection exception when connecting to CSR1kv hosting device."""
     message = (_("Failed connecting to CSR1kv. Reason: %(reason)s. "
-               "Connection Params are Host:%(host)s, "
-               "Port:%(port)s, Device timeout:%(timeout)s"))
+                 "Connection params are Host:%(host)s, "
+                 "Port:%(port)s, Device timeout:%(timeout)s"))
 
 
 class CSR1kvConfigException(DriverException):
     """Configuration exception thrown when modifying the running config."""
     message = (_("Error executing snippet:%(snippet)s. "
                  "ErrorType:%(type)s ErrorTag:%(tag)s"))
+
+
+class DriverNotFound(DriverException):
+    message = _("Driver %(driver)s does not exist")

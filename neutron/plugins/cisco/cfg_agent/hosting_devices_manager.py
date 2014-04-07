@@ -24,11 +24,13 @@ from neutron.openstack.common import log as logging
 from neutron.openstack.common import timeutils
 
 from neutron.plugins.cisco.cfg_agent.router_info import RouterInfo
+from neutron.plugins.cisco.cfg_agent import cfg_exceptions
 from neutron.plugins.cisco.common import cisco_constants as c_constants
 
 LOG = logging.getLogger(__name__)
 
-OPTS = [
+
+AGENT_OPTS = [
     cfg.IntOpt('device_connection_timeout', default=30,
                help=_("Timeout value for connecting to a hosting device")),
     cfg.IntOpt('hosting_device_dead_timeout', default=300,
@@ -36,21 +38,9 @@ OPTS = [
                       "is presumed dead. This value should be set up high "
                       "enough to recover from a period of connectivity loss "
                       "or high load when the device may not be responding.")),
-    cfg.StrOpt('CSR1kv_Routing_Driver', default='neutron.plugins.cisco.'
-                                                'cfg_agent.csr1kv.'
-                                                'csr1kv_routing_driver.'
-                                                'CSR1kvRoutingDriver',
-               help=_("CSR1000v Routing Driver class")),
 ]
-cfg.CONF.register_opts(OPTS)
 
-# Service Types : Used for loading the Hosting device manager to load the right
-# driver class for a particular service
-SERVICE_ROUTING = "routing"
-
-# Device Configuration Protocol
-DEV_CFG_PROTO_NETCONF = "NETCONF"
-DEV_CFG_PROTO_REST = "REST_API"
+cfg.CONF.register_opts(AGENT_OPTS)
 
 
 class HostingDevicesManager(object):
@@ -65,22 +55,12 @@ class HostingDevicesManager(object):
     'hosting_device' key. If a driver for that particular hosting device and
     service combo is found, it is reused, else a new driver is instantiated
     and returned.
-
-    New drivers can be specified by adding the corresponding class to the OPTS
-    variable and setting a (hosting_device_type, service_type) tuple in the
-    host_driver_binding attribute which is searched for instantiating a
-    driver class.
     """
 
     def __init__(self):
         self.router_id_hosting_devices = {}
         self._drivers = {}
         self.backlog_hosting_devices = {}
-        self.host_driver_binding = {
-            (c_constants.CSR_ROUTER_TYPE, SERVICE_ROUTING,
-             DEV_CFG_PROTO_NETCONF):
-            cfg.CONF.CSR1kv_Routing_Driver,
-        }
 
     def get_driver(self, router_info):
         if isinstance(router_info, RouterInfo):
@@ -105,37 +85,20 @@ class HostingDevicesManager(object):
 
             hosting_device = router['hosting_device']
             _hd_id = hosting_device['id']
-            _hd_type = hosting_device['host_type']
-            # Note: We are setting  service as 'Routing' and configuration
-            # protocol as 'NETCONF' as the defaults if they are not specified.
-            _service_type = hosting_device.get('service_type', SERVICE_ROUTING)
-            _config_protocol = hosting_device.get(
-                'config_protocol', DEV_CFG_PROTO_NETCONF)
+            driver_class = router['router_type']['cfg_agent_driver']
 
-            # Lookup driver based on hd_type, service and config protocol
-            try:
-                driver_class = self.host_driver_binding[
-                    (_hd_type, _service_type, _config_protocol)]
-            except KeyError:
-                LOG.exception(_("Cannot find driver class for "
-                                "device type:%(device_type)s, service_type:"
-                                "%(service_type)s and config_protocol:"
-                                "%(config_protocol)s"),
-                              {'device_type': _hd_type,
-                               'service_type': _service_type,
-                               'config_protocol': _config_protocol})
-                raise
-            #Load the driver
             try:
                 _driver = importutils.import_object(
                     driver_class,
                     **hosting_device)
             except ImportError:
-                LOG.exception(_("Error loading hosting device driver "
-                                "%(driver)s for host type %(host_type)s"),
+                LOG.exception(_("Error loading cfg agent driver for routing "
+                                "service %(driver)s for hosting device "
+                                "template  %(t_name)s(%(t_id)s)"),
                               {'driver': driver_class,
-                               'host_type': _hd_type})
-                raise
+                               't_name': hosting_device['name'],
+                               't_id': _hd_id})
+                raise cfg_exceptions.DriverNotFound(driver=driver_class)
             self.router_id_hosting_devices[router_id] = hosting_device
             self._drivers[_hd_id] = _driver
         except (AttributeError, KeyError) as e:

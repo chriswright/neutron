@@ -132,7 +132,7 @@ SVM_NON_RESPONSIVE = 'NON_RESPONSIVE'
 NAMESPACE_ROUTER_TYPE = 'NetworkNamespace_router'
 
 # Default name of router type for Neutron routers implemented
-# as Linux network namespaces in network nodes.
+# as VRFs inside a CSR1kv VM instance.
 CSR1KV_ROUTER_TYPE = 'CSR1kv_router'
 
 # The status of a Neutron Router created using the

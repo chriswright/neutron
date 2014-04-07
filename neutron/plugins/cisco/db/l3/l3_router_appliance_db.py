@@ -589,18 +589,20 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
         if binding_info.hosting_device is None:
             router['hosting_device'] = None
         else:
-            router['cfg_agent_driver'] = (binding_info.router_type.
-                                          cfg_agent_driver)
-            ip_address = binding_info.hosting_device.management_port[
-                'fixed_ips'][0]['ip_address']
+            router['router_type'] = {
+                'id': binding_info.router_type.id,
+                'name': binding_info.router_type.name,
+                'cfg_agent_driver': binding_info.router_type.cfg_agent_driver}
             hosting_device = binding_info.hosting_device
             template = binding_info.hosting_device.template
             router['hosting_device'] = {
                 'id': hosting_device.id,
-                'template_id': hosting_device.template_id,
+                'name': hosting_device.name,
+                'template_id': template.id,
                 'host_category': template.host_category,
                 'service_types': template.service_types,
-                'management_ip_address': ip_address,
+                'management_ip_address': hosting_device.management_port[
+                    'fixed_ips'][0]['ip_address'],
                 'protocol_port': hosting_device.protocol_port,
                 'created_at': str(hosting_device.created_at),
                 'booting_time': hosting_device.booting_time}

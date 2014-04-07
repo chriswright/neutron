@@ -30,7 +30,7 @@ from neutron.agent import rpc as agent_rpc
 from neutron.common import constants as l3_constants
 from neutron.common import topics
 from neutron.common import utils as common_utils
-from neutron import context
+from neutron import context as n_context
 from neutron import manager
 from neutron.openstack.common import excutils
 from neutron.openstack.common import lockutils
@@ -50,8 +50,45 @@ from neutron import service as neutron_service
 LOG = logging.getLogger(__name__)
 
 
+# Time to wait before registration retry.
+REGISTRATION_RETRY_DELAY = 2
+
+
+class CiscoDeviceManagerPluginApi(proxy.RpcProxy):
+    """Agent side of the device manager RPC API."""
+
+    BASE_RPC_API_VERSION = '1.0'
+
+    def __init__(self, topic, host):
+        super(CiscoDeviceManagerPluginApi, self).__init__(
+            topic=topic, default_version=self.BASE_RPC_API_VERSION)
+        self.host = host
+
+    def report_dead_hosting_devices(self, context, hd_ids=[]):
+        """Report that a hosting device cannot be contacted (presumed dead).
+
+        :param: context: session context
+        :param: hosting_device_ids: list of non-responding hosting devices
+        :return: None
+        """
+        # Cast since we don't expect a return value.
+        self.cast(context,
+                  self.make_msg('report_non_responding_hosting_devices',
+                                host=self.host,
+                                hosting_device_ids=hd_ids),
+                  topic=self.topic)
+
+    def register_for_duty(self, context):
+        """Report that a config agent is ready for duty.
+        """
+        # Cast since we don't expect a return value.
+        return self.call(context, self.make_msg('register_for_duty',
+                                                host=self.host),
+                         topic=self.topic)
+
+
 class CiscoRoutingPluginApi(proxy.RpcProxy):
-    """Agent side of the agent RPC API."""
+    """Agent side of the  routing RPC API."""
 
     BASE_RPC_API_VERSION = '1.0'
 
@@ -85,28 +122,6 @@ class CiscoRoutingPluginApi(proxy.RpcProxy):
         return self.call(context,
                          self.make_msg('get_external_network_id',
                                        host=self.host),
-                         topic=self.topic)
-
-    def report_dead_hosting_devices(self, context, hd_ids=[]):
-        """Report that a hosting device cannot be contacted (presumed dead).
-
-        :param: context: session context
-        :param: hosting_device_ids: list of non-responding hosting devices
-        :return: None
-        """
-        # Cast since we don't expect a return value.
-        self.cast(context,
-                  self.make_msg('report_non_responding_hosting_devices',
-                                host=self.host,
-                                hosting_device_ids=hd_ids),
-                  topic=self.topic)
-
-    def register_for_duty(self, context):
-        """Report that a config agent is ready for duty.
-        """
-        # Cast since we don't expect a return value.
-        return self.call(context, self.make_msg('register_for_duty',
-                                                host=self.host),
                          topic=self.topic)
 
 
@@ -148,7 +163,7 @@ class CiscoCfgAgent(manager.Manager):
 
     def __init__(self, host, conf=None):
         self.conf = conf or cfg.CONF
-        self.context = context.get_admin_context_without_session()
+        self.context = n_context.get_admin_context_without_session()
         #Flags
         self.fullsync = True
         self.sync_progress = False
@@ -171,17 +186,19 @@ class CiscoCfgAgent(manager.Manager):
         self.routing_service_helper = RoutingServiceHelper(self)
 
     def _initialize_plugin_rpc(self, host):
+        self.devmgr_rpc = CiscoDeviceManagerPluginApi(c_constants.CFG_AGENT,
+                                                      host)
         self.plugin_rpc = CiscoRoutingPluginApi(topics.L3PLUGIN, host)
 
     def _agent_registration(self):
-        res = self.plugin_rpc.register_for_duty(self.context)
+        res = self.devmgr_rpc.register_for_duty(self.context)
         if res is True:
             LOG.info(_("[Agent registration] Agent successfully registered"))
         elif res is False:
             LOG.info(_("[Agent registration] Neutron server said that "
-                       "device manager was not ready."
-                       "Retrying in 10 seconds "))
-            time.sleep(2)
+                       "device manager was not ready. Retrying in %d "
+                       "seconds "), REGISTRATION_RETRY_DELAY)
+            time.sleep(REGISTRATION_RETRY_DELAY)
             self._agent_registration()
         elif res is None:
             LOG.info(_("[Agent registration] Neutron server said that no "
@@ -427,7 +444,7 @@ class CiscoCfgAgent(manager.Manager):
             LOG.debug(_("Reporting dead hosting devices: %s"),
                       res['dead'])
             # Process dead hosting device
-            self.plugin_rpc.report_dead_hosting_devices(
+            self.devmgr_rpc.report_dead_hosting_devices(
                 context, hd_ids=res['dead'])
 
 
@@ -865,7 +882,7 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
             self.admin_status_up = admin_status_up
 
 
-def main(manager='neutron.plugins.cisco.l3.agent.'
+def main(manager='neutron.plugins.cisco.cfg_agent.'
                  'cfg_agent.CiscoCfgAgentWithStateReport'):
     eventlet.monkey_patch()
     conf = cfg.CONF
