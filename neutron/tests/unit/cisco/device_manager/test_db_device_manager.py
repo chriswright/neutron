@@ -15,6 +15,7 @@
 # @author: Bob Melander, Cisco Systems, Inc.
 
 import contextlib
+import mock
 
 from oslo.config import cfg
 import webob.exc
@@ -69,6 +70,10 @@ SHARED = True
 ACTION = "allow"
 ENABLED = True
 ADMIN_STATE_UP = True
+
+UNBOUND = None
+REQUESTER = True
+OTHER = False
 
 
 class DeviceManagerTestCaseMixin(object):
@@ -254,9 +259,12 @@ class TestDeviceManagerDBPlugin(
             app = config.load_paste_app('extensions_test_app')
             self.ext_api = api_ext.ExtensionMiddleware(app, ext_mgr=ext_mgr)
 
+        self._mock_l3_admin_tenant()
         self._create_mgmt_nw_for_tests(self.fmt)
+        self._mock_svc_vm_create_delete()
         self._devmgr = NeutronManager.get_service_plugins()[
             constants.DEVICE_MANAGER]
+        self._other_tenant_id = device_manager_test_support._uuid()
 
     def tearDown(self):
         self._test_remove_all_hosting_devices()
@@ -289,7 +297,12 @@ class TestDeviceManagerDBPlugin(
                     for k, v in attrs.iteritems():
                         self.assertEqual(hd['hosting_device'][k], v)
 
-    def _test_delete_hosting_device_in_use(self):
+    def _test_delete_hosting_device_not_in_use_succeeds(self):
+        #TODO
+        pass
+
+    def _test_delete_hosting_device_in_use_fails(self):
+        #TODO
         pass
 
     def test_create_vm_hosting_device_template(self):
@@ -327,11 +340,11 @@ class TestDeviceManagerDBPlugin(
         #TODO
         pass
 
-    def _test_delete_hosting_device_template(self):
+    def _test_delete_hosting_device_template_not_in_use_succeeds(self):
         #TODO
         pass
 
-    def _test_delete_hosting_device_template_in_use(self):
+    def _test_delete_hosting_device_template_in_use_fails(self):
         #TODO
         pass
 
@@ -363,89 +376,186 @@ class TestDeviceManagerDBPlugin(
         self._test_get_driver('get_hosting_device_plugging_driver', 'bogus_id',
                               True)
 
-    # slot allocation tests, succeeds means returns True,
-    # fails means returns False
-    def test_acquire_with_slot_surplus_in_owned_hosting_device_succeeds(self):
-        #TODO
-        pass
+    def _set_ownership(self, bound_status, tenant_id, other_tenant_id=None):
+        if bound_status == UNBOUND:
+            return None
+        elif bound_status == OTHER:
+            return other_tenant_id or self._other_tenant_id
+        else:
+            return tenant_id
 
-    def test_acquire_with_slot_surplus_in_shared_hosting_device_succeeds(self):
-        with self.hosting_device_template() as hdt:
+    # slot allocation and release test helper:
+    # succeeds means returns True, fails means returns False
+    def _test_slots(self, expected_result=True, expected_bind=UNBOUND,
+                    expected_allocation=VM_SLOT_CAPACITY,
+                    num_requested=VM_SLOT_CAPACITY,
+                    slot_capacity=VM_SLOT_CAPACITY, initial_bind=UNBOUND,
+                    bind=False, auto_delete=True, is_admin=False,
+                    pool_maintenance_expected=True, test_release=False,
+                    expected_release_result=True, expected_final_allocation=0,
+                    expected_release_bind=UNBOUND,
+                    num_to_release=VM_SLOT_CAPACITY,
+                    release_pool_maintenance_expected=True):
+        with self.hosting_device_template(
+                slot_capacity=slot_capacity) as hdt:
             with self.port(subnet=self._mgmt_subnet) as mgmt_port:
+                resource = self._get_fake_resource()
+                tenant_bound = self._set_ownership(
+                    initial_bind, resource['tenant_id'])
                 with self.hosting_device(
                         template_id=hdt['hosting_device_template']['id'],
                         management_port_id=mgmt_port['port']['id'],
-                        auto_delete=True) as hd:
-                    resource = self._get_fake_resource()
-                    self._devmgr._get_hosting_device(context, hd['id'])
-                    result = self._devmgr.acquire_hosting_device_slots(
-                        context, hd, resource, VM_SLOT_CAPACITY - 1)
+                        tenant_bound=tenant_bound,
+                        auto_delete=auto_delete) as hd:
+                    context = n_context.Context(
+                        None, hdt['hosting_device_template']['tenant_id'],
+                        is_admin=is_admin, read_deleted="no",
+                        load_admin_roles=True, overwrite=False)
+                    hd_db = self._devmgr._get_hosting_device(
+                            context, hd['hosting_device']['id'])
+                    with mock.patch.object(
+                            hdm_db.HostingDeviceManagerMixin,
+                            '_dispatch_pool_maintenance_job') as pm_mock:
+                        result = self._devmgr.acquire_hosting_device_slots(
+                            context, hd_db, resource, num_requested, bind)
+                        allocation = self._devmgr.get_slot_allocation(
+                            context, resource_id=resource['id'])
+                        self.assertEqual(result, expected_result)
+                        self.assertEqual(allocation, expected_allocation)
+                        expected_bind = self._set_ownership(
+                            expected_bind, resource['tenant_id'])
+                        self.assertEqual(hd_db.tenant_bound, expected_bind)
+                        if pool_maintenance_expected:
+                             pm_mock.assert_called_once()
+                             num_calls = 1
+                        else:
+                            pm_mock.assert_not_called()
+                            num_calls = 0
+                        if not test_release:
+                            return
+                        result = self._devmgr.release_hosting_device_slots(
+                            context, hd_db, resource, num_to_release)
+                        allocation = self._devmgr.get_slot_allocation(
+                            context, resource_id=resource['id'])
+                        self.assertEqual(result, expected_release_result)
+                        self.assertEqual(allocation, expected_final_allocation)
+                        expected_release_bind = self._set_ownership(
+                            expected_release_bind, resource['tenant_id'])
+                        self.assertEqual(hd_db.tenant_bound,
+                                         expected_release_bind)
+                        if release_pool_maintenance_expected:
+                            num_calls += 1
+                        self.assertEqual(pm_mock.call_count, num_calls)
 
+    # slot allocation tests
+    def test_acquire_with_slot_surplus_in_owned_hosting_device_succeeds(self):
+        self._test_slots(expected_bind=REQUESTER, initial_bind=REQUESTER,
+                         bind=True)
 
-    def test_acquire_with_slot_surplus_take_hosting_device_ownership1_succeeds(
+    def test_acquire_with_slot_surplus_in_shared_hosting_device_succeeds(self):
+        self._test_slots()
+
+    def test_acquire_with_slot_surplus_take_hosting_device_ownership_succeeds(
             self):
-        pass
+        self._test_slots(expected_bind=REQUESTER, initial_bind=UNBOUND,
+                         bind=True)
 
-    def test_acquire_with_slot_surplus_take_hosting_device_ownership2_succeeds(
+    def test_acquire_with_slot_surplus_drop_hosting_device_ownership_succeeds(
             self):
+        self._test_slots(expected_bind=UNBOUND, initial_bind=REQUESTER,
+                         bind=False)
+
+    def test_acquire_slots_release_hosting_device_ownership_affects_all(
+            self):
+        #TODO
         pass
 
     def test_acquire_slots_in_other_owned_hosting_device_fails(self):
-        pass
+        self._test_slots(expected_result=False, expected_bind=OTHER,
+                         expected_allocation=0, initial_bind=OTHER,
+                         pool_maintenance_expected=False)
 
     def test_acquire_slots_take_ownership_of_other_owned_hosting_device_fails(
             self):
-        pass
+        self._test_slots(expected_result=False, expected_bind=OTHER,
+                         expected_allocation=0, initial_bind=OTHER,
+                         bind=True, pool_maintenance_expected=False)
 
     def test_acquire_slots_take_ownership_of_multi_tenant_hosting_device_fails(
             self):
+        #TODO
         pass
 
     def test_acquire_with_slot_deficit_in_owned_hosting_device_fails(self):
-        pass
+        self._test_slots(expected_result=False, expected_bind=REQUESTER,
+                         expected_allocation=0, initial_bind=REQUESTER,
+                         num_requested=VM_SLOT_CAPACITY + 1,
+                         pool_maintenance_expected=False)
 
     def test_acquire_with_slot_deficit_in_shared_hosting_device_fails(self):
-        pass
+        self._test_slots(expected_result=False, expected_bind=UNBOUND,
+                         expected_allocation=0,
+                         num_requested=VM_SLOT_CAPACITY + 1,
+                         pool_maintenance_expected=False)
 
     def test_acquire_with_slot_deficit_in_other_owned_hosting_device_fails(
             self):
-        pass
+        self._test_slots(expected_result=False, expected_bind=OTHER,
+                         expected_allocation=0, initial_bind=OTHER,
+                         num_requested=VM_SLOT_CAPACITY + 1,
+                         pool_maintenance_expected=False)
 
-    def test_acquire_slots_success_triggers_pool_maintenance(self):
-        pass
-
-    def test_acquire_with_slot_deficit_fail_triggers_pool_maintenance(self):
-        pass
-
-    # slot release tests, succeeds means returns True,
-    # fails means returns False
+    # slot release tests
     def test_release_allocated_slots_in_owned_hosting_device_succeeds(self):
-        pass
+        self._test_slots(expected_bind=REQUESTER, initial_bind=REQUESTER,
+                         bind=True, test_release=True,
+                         expected_release_bind=REQUESTER,
+                         expected_final_allocation=1,
+                         num_to_release=VM_SLOT_CAPACITY - 1)
 
     def test_release_allocated_slots_in_shared_hosting_device_succeeds(self):
-        pass
+        self._test_slots(test_release=True, expected_final_allocation=1,
+                         num_to_release=VM_SLOT_CAPACITY - 1)
 
     def test_release_all_slots_returns_hosting_device_ownership(self):
-        pass
+        self._test_slots(expected_bind=REQUESTER, initial_bind=REQUESTER,
+                         bind=True, test_release=True,
+                         expected_release_bind=UNBOUND)
 
     def test_release_slots_in_other_owned_hosting_device_fails(self):
-        pass
+        self._test_slots(expected_result=False, expected_bind=OTHER,
+                         expected_allocation=0, initial_bind=OTHER,
+                         pool_maintenance_expected=False,
+                         test_release=True, expected_release_result=False,
+                         expected_release_bind=OTHER,
+                         expected_final_allocation=0,
+                         num_to_release=VM_SLOT_CAPACITY - 1,
+                         release_pool_maintenance_expected=False)
 
-    def test_release_too_many_slots_in_hosting_device_fails(self):
-        pass
+    def test_release_too_many_slots_in_owned_hosting_device_fails(self):
+        self._test_slots(expected_bind=REQUESTER, initial_bind=REQUESTER,
+                         bind=True, test_release=True,
+                         expected_release_result=False,
+                         expected_release_bind=REQUESTER,
+                         expected_final_allocation=VM_SLOT_CAPACITY,
+                         num_to_release=VM_SLOT_CAPACITY + 1)
 
-    def test_release_with_slot_deficit_in_shared_hosting_device_fails(self):
-        pass
+    def test_release_too_many_slots_in_shared_hosting_device_fails(self):
+        self._test_slots(test_release=True, expected_release_result=False,
+                         expected_release_bind=UNBOUND,
+                         expected_final_allocation=VM_SLOT_CAPACITY,
+                         num_to_release=VM_SLOT_CAPACITY + 1)
 
-    def test_release_with_slot_deficit_in_other_owned_hosting_device_fails(
+    def test_release_too_many_slots_in_other_owned_hosting_device_fails(
             self):
-        pass
-
-    def test_release_slots_success_triggers_pool_maintenance(self):
-        pass
-
-    def test_release_too_many_slots_fail_triggers_pool_maintenance(self):
-        pass
+        self._test_slots(expected_result=False, expected_bind=OTHER,
+                         expected_allocation=0, initial_bind=OTHER,
+                         pool_maintenance_expected=False,
+                         test_release=True, expected_release_result=False,
+                         expected_release_bind=OTHER,
+                         expected_final_allocation=0,
+                         num_to_release=VM_SLOT_CAPACITY + 1,
+                         release_pool_maintenance_expected=False)
 
     # hosting device deletion tests
     def test_delete_all_managed_hosting_devices(self):

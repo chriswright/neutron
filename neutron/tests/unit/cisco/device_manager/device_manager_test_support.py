@@ -137,6 +137,14 @@ class DeviceManagerTestSupportMixin:
             self._delete_service_vm_mock)
         self.delete_svc_vm_fcn_p.start()
 
+    def _mock_dispatch_pool_maintenance(self):
+        # Mock creation/deletion of service VMs
+        self.dispatch_pool_maintenance_job_fcn_p = mock.patch(
+            'neutron.plugins.cisco.device_manager.hosting_device_manager_db'
+            '.HostingDeviceManagerMixin._dispatch_pool_maintenance_job')#,
+#            self._dispatch_service_vm_mock)
+        self.dispatch_pool_maintenance_job_fcn_p .start()
+
     def _test_remove_all_hosting_devices(self):
         """Removes all hosting devices created during a test."""
         devmgr = NeutronManager.get_service_plugins()[

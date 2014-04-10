@@ -238,7 +238,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
         Returns True if allocation was granted, False otherwise.
         """
         if ((hosting_device['tenant_bound'] is not None and
-             hosting_device['tenant_bound'] != resource['id']) or
+             hosting_device['tenant_bound'] != resource['tenant_id']) or
             (exclusive and not self._exclusively_used(context, hosting_device,
                                                       resource['tenant_id']))):
             LOG.debug(_('Rejecting allocation of %(num)d slots in hosting '
@@ -247,7 +247,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                       {'num': num, 'device': hosting_device['id'],
                        'id': resource['id']})
             return False
-        with context.session.begin(subtransations=True):
+        with context.session.begin(subtransactions=True):
             try:
                 slot_info = context.session.query(SlotAllocation).filter_by(
                     logical_resource_id=resource['id'],
@@ -266,9 +266,9 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                     hosting_device_id=hosting_device['id'],
                     logical_resource_id=resource['id'],
                     logical_resource_owner=resource['tenant_id'],
-                    allocated=0,
+                    num_allocated=0,
                     tenant_bound=None)
-            new_allocation = num + slot_info.allocated
+            new_allocation = num + slot_info.num_allocated
             if hosting_device['template']['slot_capacity'] < new_allocation:
                 LOG.debug(_('Rejecting allocation of %(num)d slots in '
                             'hosting device %(device)s to logical resource '
@@ -284,7 +284,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
             elif not exclusive and hosting_device['tenant_bound'] is not None:
                 self._update_hosting_device_exclusivity(
                     context, hosting_device, None)
-            slot_info.allocated = new_allocation
+            slot_info.num_allocated = new_allocation
             context.session.add(slot_info)
         self._dispatch_pool_maintenance_job(hosting_device['template'])
         # report success
@@ -340,6 +340,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                     # resource use it anymore
                     hosting_device['tenant_bound'] = None
                     context.session.add(hosting_device)
+                self._dispatch_pool_maintenance_job(hosting_device['template'])
                 return result == 1
             LOG.info(_('Deallocated %(num)d slots from hosting device '
                        '%(hd_id)s. %(total)d slots are now allocated in that '
@@ -351,6 +352,17 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
         self._dispatch_pool_maintenance_job(hosting_device['template'])
         # report success
         return True
+
+    def get_slot_allocation(self, context, template_id=None,
+                            hosting_device_id=None, resource_id=None):
+        query = context.session.query(func.sum(SlotAllocation.num_allocated))
+        if template_id is not None:
+            query = query.filter_by(template_id=template_id)
+        if hosting_device_id is not None:
+            query = query.filter_by(hosting_device_id=hosting_device_id)
+        if resource_id is not None:
+            query = query.filter_by(logical_resource_id=resource_id)
+        return query.scalar() or 0
 
     def get_hosting_devices_qry(self, context, hosting_device_ids):
         """Returns hosting devices with <hosting_device_ids>."""
@@ -654,9 +666,10 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
 
     def _exclusively_used(self, context, hosting_device, tenant_id):
         """Checks if only <tenant_id>'s resources use <hosting_device>."""
-        return context.session.query(SlotAllocation).filter(
+        return (context.session.query(SlotAllocation).filter(
             SlotAllocation.hosting_device_id == hosting_device['id'],
-            SlotAllocation.local_resource_owner != tenant_id).first() is None
+            SlotAllocation.logical_resource_owner != tenant_id).first() is
+                None)
 
     def _update_hosting_device_exclusivity(self, context, hosting_device,
                                            tenant_id):
