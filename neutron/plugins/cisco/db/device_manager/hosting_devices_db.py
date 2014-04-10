@@ -58,7 +58,6 @@ class HostingDeviceDBMixin(
                 protocol_port=hd.get('protocol_port'),
                 cfg_agent_id=hd.get('cfg_agent_id'),
                 created_at=hd.get('created_at', timeutils.utcnow()),
-                booting_time=hd.get('booting_time'),
                 status=hd.get('status', svc_constants.ACTIVE),
                 tenant_bound=hd.get('tenant_bound'),
                 auto_delete=hd.get('auto_delete', AUTO_DELETE_DEFAULT))
@@ -75,7 +74,7 @@ class HostingDeviceDBMixin(
             hd_db = hd_query.filter_by(id=id).one()
             hd_db.update(hd)
             #TODO(bobmel): notify_agent on changes to credentials,
-            # admin_state_up, booting_time, tenant_bound
+            # admin_state_up, tenant_bound
         return self._make_hosting_device_dict(hd_db)
 
     def delete_hosting_device(self, context, id):
@@ -181,7 +180,6 @@ class HostingDeviceDBMixin(
                'protocol_port': hd['protocol_port'],
                'cfg_agent_id': hd['cfg_agent_id'],
                'created_at': hd['created_at'],
-               'booting_time': hd['booting_time'],
                'status': hd['status'],
                'tenant_bound': hd['tenant_bound'],
                'auto_delete': hd['auto_delete']}

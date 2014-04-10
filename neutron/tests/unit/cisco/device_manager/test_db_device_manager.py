@@ -21,6 +21,8 @@ import webob.exc
 
 from neutron.api import extensions as api_ext
 from neutron.common import config
+from neutron import context as n_context
+from neutron.manager import NeutronManager
 from neutron.openstack.common import importutils
 from neutron.plugins.cisco.common import cisco_constants as c_constants
 from neutron.plugins.cisco.db.device_manager import (hosting_device_manager_db
@@ -140,7 +142,6 @@ class DeviceManagerTestCaseMixin(object):
             'management_port_id': management_port_id,
             'protocol_port': kwargs.get('protocol_port', 22),
             'cfg_agent_id': kwargs.get('cfg_agent_id'),
-            'booting_time': kwargs.get('booting_time', 0),
             'tenant_bound': kwargs.get('tenant_bound'),
             'auto_delete': kwargs.get('auto_delete', False)}
         return data
@@ -254,8 +255,11 @@ class TestDeviceManagerDBPlugin(
             self.ext_api = api_ext.ExtensionMiddleware(app, ext_mgr=ext_mgr)
 
         self._create_mgmt_nw_for_tests(self.fmt)
+        self._devmgr = NeutronManager.get_service_plugins()[
+            constants.DEVICE_MANAGER]
 
     def tearDown(self):
+        self._test_remove_all_hosting_devices()
         self._remove_mgmt_nw_for_tests()
         super(TestDeviceManagerDBPlugin, self).tearDown()
 
@@ -265,11 +269,11 @@ class TestDeviceManagerDBPlugin(
                 attrs = self._get_test_hosting_device_attr(
                     template_id=hdt['hosting_device_template']['id'],
                     management_port_id=mgmt_port['port']['id'],
-                    auto_delete_on_fail=True)
+                    auto_delete=True)
                 with self.hosting_device(
                         template_id=hdt['hosting_device_template']['id'],
                         management_port_id=mgmt_port['port']['id'],
-                        auto_delete_on_fail=True) as hd:
+                        auto_delete=True) as hd:
                     for k, v in attrs.iteritems():
                         self.assertEqual(hd['hosting_device'][k], v)
 
@@ -311,22 +315,162 @@ class TestDeviceManagerDBPlugin(
             for k, v in attrs.iteritems():
                 self.assertEqual(hdt['hosting_device_template'][k], v)
 
-        pass
-
     def _test_show_hosting_device_template(self):
+        #TODO
         pass
 
     def _test_list_hosting_device_templates(self):
+        #TODO
         pass
 
     def _test_update_hosting_device_template(self):
+        #TODO
         pass
 
     def _test_delete_hosting_device_template(self):
+        #TODO
         pass
 
     def _test_delete_hosting_device_template_in_use(self):
+        #TODO
         pass
+
+    # driver request tests
+    def _test_get_driver(self, get_method, id=None, test_for_none=False,
+                         is_admin=False):
+        with self.hosting_device_template() as hdt:
+            context = n_context.Context(
+                None, hdt['hosting_device_template']['tenant_id'],
+                is_admin=is_admin)
+            driver_getter = getattr(self._devmgr, get_method)
+            template_id = id or hdt['hosting_device_template']['id']
+            driver = driver_getter(context, template_id)
+            if test_for_none:
+                self.assertIsNone(driver)
+            else:
+                self.assertIsNotNone(driver)
+
+    def test_get_hosting_device_driver(self):
+        self._test_get_driver('get_hosting_device_driver')
+
+    def test_get_non_existent_hosting_device_driver_returns_none(self):
+        self._test_get_driver('get_hosting_device_driver', 'bogus_id', True)
+
+    def test_get_plugging_device_driver(self):
+        self._test_get_driver('get_hosting_device_plugging_driver')
+
+    def test_get_non_existent_plugging_device_driver_returns_none(self):
+        self._test_get_driver('get_hosting_device_plugging_driver', 'bogus_id',
+                              True)
+
+    # slot allocation tests, succeeds means returns True,
+    # fails means returns False
+    def test_acquire_with_slot_surplus_in_owned_hosting_device_succeeds(self):
+        #TODO
+        pass
+
+    def test_acquire_with_slot_surplus_in_shared_hosting_device_succeeds(self):
+        with self.hosting_device_template() as hdt:
+            with self.port(subnet=self._mgmt_subnet) as mgmt_port:
+                with self.hosting_device(
+                        template_id=hdt['hosting_device_template']['id'],
+                        management_port_id=mgmt_port['port']['id'],
+                        auto_delete=True) as hd:
+                    resource = self._get_fake_resource()
+                    self._devmgr._get_hosting_device(context, hd['id'])
+                    result = self._devmgr.acquire_hosting_device_slots(
+                        context, hd, resource, VM_SLOT_CAPACITY - 1)
+
+
+    def test_acquire_with_slot_surplus_take_hosting_device_ownership1_succeeds(
+            self):
+        pass
+
+    def test_acquire_with_slot_surplus_take_hosting_device_ownership2_succeeds(
+            self):
+        pass
+
+    def test_acquire_slots_in_other_owned_hosting_device_fails(self):
+        pass
+
+    def test_acquire_slots_take_ownership_of_other_owned_hosting_device_fails(
+            self):
+        pass
+
+    def test_acquire_slots_take_ownership_of_multi_tenant_hosting_device_fails(
+            self):
+        pass
+
+    def test_acquire_with_slot_deficit_in_owned_hosting_device_fails(self):
+        pass
+
+    def test_acquire_with_slot_deficit_in_shared_hosting_device_fails(self):
+        pass
+
+    def test_acquire_with_slot_deficit_in_other_owned_hosting_device_fails(
+            self):
+        pass
+
+    def test_acquire_slots_success_triggers_pool_maintenance(self):
+        pass
+
+    def test_acquire_with_slot_deficit_fail_triggers_pool_maintenance(self):
+        pass
+
+    # slot release tests, succeeds means returns True,
+    # fails means returns False
+    def test_release_allocated_slots_in_owned_hosting_device_succeeds(self):
+        pass
+
+    def test_release_allocated_slots_in_shared_hosting_device_succeeds(self):
+        pass
+
+    def test_release_all_slots_returns_hosting_device_ownership(self):
+        pass
+
+    def test_release_slots_in_other_owned_hosting_device_fails(self):
+        pass
+
+    def test_release_too_many_slots_in_hosting_device_fails(self):
+        pass
+
+    def test_release_with_slot_deficit_in_shared_hosting_device_fails(self):
+        pass
+
+    def test_release_with_slot_deficit_in_other_owned_hosting_device_fails(
+            self):
+        pass
+
+    def test_release_slots_success_triggers_pool_maintenance(self):
+        pass
+
+    def test_release_too_many_slots_fail_triggers_pool_maintenance(self):
+        pass
+
+    # hosting device deletion tests
+    def test_delete_all_managed_hosting_devices(self):
+        pass
+
+    def test_delete_all_hosting_devices(self):
+        pass
+
+    def test_delete_all_managed_hosting_devices_by_template(self):
+        pass
+
+    def test_delete_all_hosting_devices_by_template(self):
+        pass
+
+    # handled failed hosting device tests
+    def test_service_plugins_informed_about_failed_hosting_device(self):
+        pass
+
+    def test_vm_based_failed_hosting_device_gets_deleted(self):
+        pass
+
+    def test_non_vm_based_failed_hosting_device_not_deleted(self):
+        pass
+
+    # hosting device pool maintenance tests
 
 
 class TestDeviceManagerDBPluginXML(TestDeviceManagerDBPlugin):

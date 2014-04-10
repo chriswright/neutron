@@ -32,7 +32,7 @@ class HostingDeviceTemplate(model_base.BASEV2, models_v2.HasId,
     name = sa.Column(sa.String(255))
     # template enabled if True
     enabled = sa.Column(sa.Boolean, nullable=False, default=True)
-    # 'host_category' can be 'VM', 'Hardware'
+    # 'host_category' can be 'VM', 'Hardware', 'NetworkNode'
     host_category = sa.Column(sa.String(255), nullable=False)
     # list of service types hosting devices based on this template support
     service_types = sa.Column(sa.String(255))
@@ -109,9 +109,6 @@ class HostingDevice(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     # Service VMs take time to boot so we store creation time
     # so we can give preference to older ones when scheduling
     created_at = sa.Column(sa.DateTime, nullable=False)
-    # Typical time (in seconds) needed for hosting device to boot
-    # into operational state.
-    booting_time = sa.Column(sa.Integer, default=0)
     status = sa.Column(sa.String(16))
     # 'tenant_bound' is empty or is id of the only tenant allowed to
     # own/place resources on this hosting device

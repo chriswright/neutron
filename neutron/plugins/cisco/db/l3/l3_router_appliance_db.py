@@ -605,7 +605,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
                     'fixed_ips'][0]['ip_address'],
                 'protocol_port': hosting_device.protocol_port,
                 'created_at': str(hosting_device.created_at),
-                'booting_time': hosting_device.booting_time}
+                'booting_time': template.booting_time}
 
     def _add_hosting_port_info(self, context, router, plugging_driver):
         """Adds hosting port information to router ports."""

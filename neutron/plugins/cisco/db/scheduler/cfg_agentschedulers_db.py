@@ -43,7 +43,7 @@ cfg.CONF.register_opts(COMPOSITE_AGENTS_SCHEDULER_OPTS)
 
 class CfgAgentSchedulerDbMixin(
         ciscocfgagentscheduler.CfgAgentSchedulerPluginBase,
-        agentschedulers_db.AgentSchedulerDbMixin,):
+        agentschedulers_db.AgentSchedulerDbMixin):
     """Mixin class to add cfg agent scheduler extension."""
 
     cfg_agent_scheduler = None

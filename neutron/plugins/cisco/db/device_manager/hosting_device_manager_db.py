@@ -16,6 +16,7 @@
 
 import eventlet
 import math
+import threading
 
 from keystoneclient import exceptions as k_exceptions
 from keystoneclient.v2_0 import client as k_client
@@ -87,6 +88,9 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
     # Dictionaries with loaded driver modules for different host types
     _plugging_drivers = {}
     _hosting_device_drivers = {}
+
+    # Dictionary with locks for hosting device pool maintenance
+    _hosting_device_locks = {}
 
     # Scheduler of hosting devices to configuration agent
     _cfgagent_scheduler = None
@@ -222,9 +226,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
 
     def report_hosting_device_shortage(self, context, template):
         """Used to report shortage of hosting devices based on <template>."""
-        mgr_context = neutron_context.get_admin_context()
-        self._gt_pool.spawn_n(self._maintain_hosting_device_pool, mgr_context,
-                              template)
+        self._dispatch_pool_maintenance_job(self, template)
 
     def acquire_hosting_device_slots(self, context, hosting_device, resource,
                                      num, exclusive=False):
@@ -273,6 +275,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                             '%(id)s due to insufficent slot availability.'),
                           {'num': num, 'device': hosting_device['id'],
                            'id': resource['id']})
+                self._dispatch_pool_maintenance_job(hosting_device['template'])
                 return False
             # handle any changes to exclusive usage by tenant
             if exclusive and hosting_device['tenant_bound'] is None:
@@ -283,6 +286,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                     context, hosting_device, None)
             slot_info.allocated = new_allocation
             context.session.add(slot_info)
+        self._dispatch_pool_maintenance_job(hosting_device['template'])
         # report success
         LOG.info(_('Allocated %(num)d additional slots in hosting device '
                    '%(hd_id)s. %(total)d slots are now allocated in that '
@@ -324,6 +328,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                           {'num': num, 'device': hosting_device['id'],
                           'id': resource['id'],
                           'alloc': slot_info.num_allocated})
+                self._dispatch_pool_maintenance_job(hosting_device['template'])
                 return False
             elif new_allocation == 0:
                 result = query.delete()
@@ -343,6 +348,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                       'hd_id': hosting_device['id']})
             slot_info.num_allocated = new_allocation
             context.session.add(slot_info)
+        self._dispatch_pool_maintenance_job(hosting_device['template'])
         # report success
         return True
 
@@ -456,6 +462,11 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
     def _core_plugin(self):
         return manager.NeutronManager.get_plugin()
 
+    def _dispatch_pool_maintenance_job(self, template):
+        mgr_context = neutron_context.get_admin_context()
+        self._gt_pool.spawn_n(self._maintain_hosting_device_pool, mgr_context,
+                              template)
+
     def _maintain_hosting_device_pool(self, context, template):
         """Maintains the pool of hosting devices that are based on <template>.
 
@@ -466,33 +477,43 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
         # For now the pool size is only elastic for service VMs.
         if template['host_category'] != VM_CATEGORY:
             return
-        # Maintain a pool of approximately 'desired_slots_free' available
-        # for allocation. Approximately means:
-        # max(0, desired_slots_free - capacity) <= available_slots <=
-        #                                         desired_slots_free + capacity
-        capacity = template['slot_capacity']
-        desired = template['desired_slots_free']
-        available = self._get_total_available_slots(context, template['id'],
-                                                    capacity)
-        if available <= max(0, desired - capacity):
-            num_req = int(math.ceil((desired - available) / (1.0 * capacity)))
-            num_created = len(self._create_svc_vm_hosting_devices(
-                context, num_req, template))
-            if num_created < num_req:
-                LOG.warn(_('Requested %(requested)d instances based on '
-                           'hosting device template %(template)s but could'
-                           'only create %(created)d instances'),
-                         {'requested': num_req, 'template': template['id'],
-                          'created': num_created})
-        elif available >= desired + capacity:
-            num_req = int(math.ceil((available - desired) / (1.0 * capacity)))
-            num_deleted = self._delete_idle_service_vm_hosting_devices(
-                context, num_req, template)
-            if num_deleted < num_req:
-                LOG.warn(_('Tried to delete %(requested)d instances based on '
-                           'hosting device template %(template)s but could '
-                           'only delete %(deleted)d instances'),
-                         {'requested': num_req, 'deleted': num_deleted})
+        lock = self._get_template_pool_lock(template['id'])
+        acquired = lock.acquire(False)
+        if not acquired:
+            # pool maintenance for this template already ongoing, so abort
+            return
+        try:
+            # Maintain a pool of approximately 'desired_slots_free' available
+            # for allocation. Approximately means:
+            # max(0, desired_slots_free-capacity) <= available_slots <=
+            #                                       desired_slots_free+capacity
+            capacity = template['slot_capacity']
+            desired = template['desired_slots_free']
+            available = self._get_total_available_slots(
+                context, template['id'], capacity)
+            if available <= max(0, desired - capacity):
+                num_req = int(
+                    math.ceil((desired - available) / (1.0 * capacity)))
+                num_created = len(self._create_svc_vm_hosting_devices(
+                    context, num_req, template))
+                if num_created < num_req:
+                    LOG.warn(_('Requested %(requested)d instances based on '
+                               'hosting device template %(template)s but '
+                               'could only create %(created)d instances'),
+                             {'requested': num_req, 'template': template['id'],
+                              'created': num_created})
+            elif available >= desired + capacity:
+                num_req = int(
+                    math.ceil((available - desired) / (1.0 * capacity)))
+                num_deleted = self._delete_idle_service_vm_hosting_devices(
+                    context, num_req, template)
+                if num_deleted < num_req:
+                    LOG.warn(_('Tried to delete %(requested)d instances based '
+                               'on hosting device template %(template)s but '
+                               'could only delete %(deleted)d instances'),
+                             {'requested': num_req, 'deleted': num_deleted})
+        finally:
+            lock.release()
 
     def _create_svc_vm_hosting_devices(self, context, num, template):
         """Creates <num> or less service VM instances based on <template>.
@@ -513,7 +534,6 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                     'admin_state_up': True,
                     'protocol_port': template['protocol_port'],
                     'created_at': timeutils.utcnow(),
-                    'booting_time': template['booting_time'],
                     'tenant_bound': template['tenant_bound'],
                     'auto_delete': True}
         #TODO(bobmel): Determine value for max_hosted properly
@@ -652,3 +672,11 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                     hosting_device_id=hosting_device['id']):
                 item['tenant_bound'] = tenant_id
                 context.session.add(item)
+
+    def _get_template_pool_lock(self, id):
+        """Returns lock object for hosting device template with <id>."""
+        try:
+            return self._hosting_device_locks[id]
+        except KeyError:
+            self._hosting_device_locks[id] = threading.Lock()
+            return self._hosting_device_locks.get(id)

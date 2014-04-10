@@ -54,7 +54,6 @@ class CiscoHostingDeviceManagerTestCase(test_api_v2_ext.ExtensionTestCase):
             'management_port_id': _uuid(),
             'protocol_port': 22,
             'cfg_agent_id': None,
-            'booting_time': 10,
             'tenant_bound': None,
             'auto_delete': True}}
 
