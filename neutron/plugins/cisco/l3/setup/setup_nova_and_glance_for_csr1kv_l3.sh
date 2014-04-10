@@ -29,6 +29,7 @@ csr1kvDiskFormat="qcow2"
 csr1kvContainerFormat="bare"
 csr1kvGlanceExtraParams="--property hw_vif_model=e1000 --property hw_disk_bus=ide --property hw_cdrom_bus=ide"
 csr1kvHostingDeviceTemplateName="CSR1kv_template"
+csr1kvCredentialId="99999999-2222-3333-4444-555555555555"
 
 
 tenantId=`keystone tenant-get $l3AdminTenant 2>&1 | awk '/No tenant|id/ { if ($1 == "No") print "No"; else print $4; }'`
@@ -143,8 +144,7 @@ else
    echo " Yes, it does."
 fi
 
-
-echo -n "Checking if '$csr1kvHostingDeviceTemplateName' is registered as hosting device template in $osn ..."
+echo -n "Checking if credential '$csr1kvCredentialId' exits..."
 if [ "$plugin" == "n1kv" ]; then
    db="cisco_$osn"
    hd_driver="neutron.plugins.cisco.device_manager.hosting_device_drivers.csr1kv_hd_driver.CSR1kvHostingDeviceDriver"
@@ -154,7 +154,22 @@ else
    hd_driver="neutron.plugins.cisco.device_manager.hosting_device_drivers.csr1kv_hd_driver.CSR1kvHostingDeviceDriver"
    plugging_driver="neutron.plugins.cisco.device_manager.plugging_drivers.ovs_trunking_driver.OvsTrunkingPlugDriver"
 fi
-sql_statement="SELECT id FROM hostingdevicetemplates where id='11111111-2222-3333-4444-555555555555'"
+
+sql_statement="SELECT id FROM devicecredentials WHERE id='$csr1kvCredentialId'"
+hasCredential=`mysql -e "use $db; $sql_statement" | awk '/id/ { print "Yes" }'`
+if [ "$hasCredential" != "Yes" ]; then
+   echo " No, it is not. Registering it."
+    sql_statement="INSERT INTO devicecredentials VALUES
+   ('$csr1kvCredentialId', 'CSR1kv credentials', 'For CSR1kv VM instances',
+    'stack', 'cisco', NULL)"
+   mysql -e "use $db; $sql_statement"
+else
+   echo " Yes, it is."
+fi
+
+
+echo -n "Checking if '$csr1kvHostingDeviceTemplateName' is registered as hosting device template in $osn ..."
+sql_statement="SELECT id FROM hostingdevicetemplates WHERE id='11111111-2222-3333-4444-555555555555'"
 hasTemplate=`mysql -e "use $db; $sql_statement" | awk '/id/ { print "Yes" }'`
 
 if [ "$hasTemplate" != "Yes" ]; then
@@ -167,8 +182,8 @@ if [ "$hasTemplate" != "Yes" ]; then
    sql_statement="INSERT INTO hostingdevicetemplates VALUES
    ('$tenantId', '11111111-2222-3333-4444-555555555555',
     '$csr1kvHostingDeviceTemplateName', TRUE, 'VM', 'router',
-    '$csr1kvImageName', '$csr1kvFlavorId', 'Csr1kvCredId', 'Netconf', 22, 420,
-    10, 5, NULL, '$hd_driver', '$plugging_driver')"
+    '$csr1kvImageName', '$csr1kvFlavorId', '$csr1kvCredentialId', 'Netconf',
+    22, 420, 10, 5, NULL, '$hd_driver', '$plugging_driver')"
    mysql -e "use $db; $sql_statement"
 else
    echo " Yes, it is."
@@ -181,7 +196,7 @@ if [ "$plugin" == "n1kv" ]; then
 else
    db="csr1kv_ovs_$osn"
 fi
-sql_statement="SELECT id FROM hostingdevicetemplates where id='11111110-2222-3333-4444-555555555555'"
+sql_statement="SELECT id FROM hostingdevicetemplates WHERE id='11111110-2222-3333-4444-555555555555'"
 hasTemplate=`mysql -e "use $db; $sql_statement" | awk '/id/ { print "Yes" }'`
 
 if [ "$hasTemplate" != "Yes" ]; then
