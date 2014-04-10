@@ -226,7 +226,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
 
     def report_hosting_device_shortage(self, context, template):
         """Used to report shortage of hosting devices based on <template>."""
-        self._dispatch_pool_maintenance_job(self, template)
+        self._dispatch_pool_maintenance_job(template)
 
     def acquire_hosting_device_slots(self, context, hosting_device, resource,
                                      num, exclusive=False):
@@ -468,7 +468,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
         # initialize hosting device pools
         ctx = neutron_context.get_admin_context()
         for template in ctx.session.query(HostingDeviceTemplate):
-            self.report_hosting_device_shortage(ctx, template)
+            self._dispatch_pool_maintenance_job(template)
 
     @property
     def _core_plugin(self):
