@@ -191,18 +191,23 @@ class TestRoutertypeDBPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
                     self.assertEqual(rt['routertype'][k], v)
 
     def _test_show_routertype(self):
+        #TODO
         pass
 
     def _test_list_routertypes(self):
+        #TODO
         pass
 
     def _test_update_routertype(self):
+        #TODO
         pass
 
     def _test_delete_routertype(self):
+        #TODO
         pass
 
     def _test_delete_routertype_in_use(self):
+        #TODO
         pass
 
 

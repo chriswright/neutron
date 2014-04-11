@@ -25,6 +25,7 @@ from neutron.openstack.common import log as logging
 from neutron.openstack.common.notifier import api as notifier_api
 from neutron.openstack.common.notifier import test_notifier
 from neutron.plugins.cisco.common import cisco_constants as c_const
+from neutron.plugins.cisco.db.l3 import l3_router_appliance_db
 from neutron.plugins.cisco.extensions import routertype
 from neutron.tests.unit.cisco.device_manager import device_manager_test_support
 from neutron.tests.unit.cisco.device_manager import test_db_device_manager
@@ -32,6 +33,8 @@ from neutron.tests.unit.cisco.l3 import l3_router_test_support
 from neutron.tests.unit.cisco.l3 import test_db_routertype
 from neutron.tests.unit import test_extension_extraroute as test_ext_extraroute
 from neutron.tests.unit import test_l3_plugin
+from neutron.tests.unit import test_db_plugin
+
 
 LOG = logging.getLogger(__name__)
 
@@ -61,7 +64,7 @@ class TestApplianceL3RouterServicePlugin(
 
 
 class L3RouterApplianceTestCaseBase(
-    test_ext_extraroute.ExtraRouteDBSepTestCase,
+    test_db_plugin.NeutronDbPluginV2TestCase,
     test_db_routertype.RoutertypeTestCaseMixin,
     test_db_device_manager.DeviceManagerTestCaseMixin,
     l3_router_test_support.L3RouterTestSupportMixin,
@@ -83,17 +86,14 @@ class L3RouterApplianceTestCaseBase(
         # for these tests we need to enable overlapping ips
         cfg.CONF.set_default('allow_overlapping_ips', True)
         cfg.CONF.set_default('max_routes', 3)
-        ext_mgr = TestApplianceL3RouterExtensionManager()
+        if ext_mgr is None:
+            ext_mgr = TestApplianceL3RouterExtensionManager()
 
-        # call grandparent's setUp() to avoid that wrong plugin and
-        # extensions are used.
-        super(test_l3_plugin.L3BaseForSepTests, self).setUp(
+        super(L3RouterApplianceTestCaseBase, self).setUp(
             plugin=core_plugin, service_plugins=service_plugins,
             ext_mgr=ext_mgr)
 
-        # Set to None to reload the drivers
-        notifier_api._drivers = None
-        cfg.CONF.set_override("notification_driver", [test_notifier.__name__])
+        self.setup_notification_driver()
 
         cfg.CONF.set_override('allow_sorting', True)
         test_opts = [
@@ -116,37 +116,11 @@ class L3RouterApplianceTestCaseBase(
         self._remove_mgmt_nw_for_tests()
         super(L3RouterApplianceTestCaseBase, self).tearDown()
 
-    def test_get_network_succeeds_without_filter(self):
-        plugin = NeutronManager.get_plugin()
-        ctx = context.Context(None, None, is_admin=True)
-        nets = plugin.get_networks(ctx, filters=None)
-        # Remove mgmt network from list
-        for i in xrange(len(nets)):
-            if nets[i].get('id') == plugin.mgmt_nw_id():
-                del nets[i]
-                break
-        self.assertEqual(nets, [])
 
-    def test_list_nets_external(self):
-        with self.network() as n1:
-            self._set_net_external(n1['network']['id'])
-            with self.network():
-                body = self._list('networks')
-                # 3 networks since there is also the mgmt network
-                self.assertEqual(len(body['networks']), 3)
-
-                body = self._list(
-                    'networks', query_params="%s=True" % external_net.EXTERNAL)
-                self.assertEqual(len(body['networks']), 1)
-
-                body = self._list(
-                    'networks',
-                    query_params="%s=False" % external_net.EXTERNAL)
-                # 2 networks since there is also the mgmt network
-                self.assertEqual(len(body['networks']), 2)
-
-
-class L3RouterApplianceNamespaceTestCase(L3RouterApplianceTestCaseBase):
+class L3RouterApplianceNamespaceTestCase(
+    test_l3_plugin.L3NatTestCaseBase,
+    test_ext_extraroute.ExtraRouteDBTestCaseBase,
+        L3RouterApplianceTestCaseBase):
 
     def setUp(self, core_plugin=None, l3_plugin=None, dm_plugin=None,
               ext_mgr=None):
@@ -161,15 +135,20 @@ class L3RouterApplianceNamespaceTestCase(L3RouterApplianceTestCaseBase):
         self._test_create_routertypes(templates.values())
 
     def tearDown(self):
-        plugin = NeutronManager.get_plugin()
-        plugin.reset_all()
-
         self._test_remove_routertypes()
         self._test_remove_hosting_device_templates()
         super(L3RouterApplianceTestCaseBase, self).tearDown()
 
 
-class L3RouterApplianceVMTestCase(L3RouterApplianceTestCaseBase):
+#class L3RouterApplianceNamespaceTestCaseXML(
+#        L3RouterApplianceNamespaceTestCase):
+#    fmt = 'xml'
+
+
+class L3RouterApplianceVMTestCase(
+    test_l3_plugin.L3NatTestCaseBase,
+    test_ext_extraroute.ExtraRouteDBTestCaseBase,
+        L3RouterApplianceTestCaseBase):
 
     def setUp(self, core_plugin=None, l3_plugin=None, dm_plugin=None,
               ext_mgr=None):
@@ -183,14 +162,37 @@ class L3RouterApplianceVMTestCase(L3RouterApplianceTestCaseBase):
         self._mock_get_routertype_scheduler_always_none()
 
     def tearDown(self):
-        plugin = NeutronManager.get_plugin()
-        plugin.delete_all_hosting_devices(context.get_admin_context(), True)
-        plugin.reset_all()
-
         self._test_remove_routertypes()
         self._test_remove_hosting_device_templates()
         super(L3RouterApplianceTestCaseBase, self).tearDown()
 
 
-class L3RouterApplianceTestCaseXML(L3RouterApplianceTestCaseBase):
-    fmt = 'xml'
+#class L3RouterApplianceVMTestCaseXML(L3RouterApplianceVMTestCase):
+#    fmt = 'xml'
+
+
+class L3AgentRouterApplianceNamespaceTestCase(
+    test_l3_plugin.L3AgentDbTestCaseBase,
+        test_db_plugin.NeutronDbPluginV2TestCase):
+
+    def setUp(self, plugin=None, l3_plugin=None, ext_mgr=None):
+        self.core_plugin = device_manager_test_support.TestCorePlugin()
+        # service plugin providing L3 routing
+        self.plugin = TestApplianceL3RouterServicePlugin()
+
+        # the plugin without L3 support
+        if plugin is None:
+            plugin = CORE_PLUGIN_KLASS
+        # the L3 service plugin
+        if l3_plugin is None:
+            l3_plugin = L3_PLUGIN_KLASS
+        service_plugins = {'l3_plugin_name': l3_plugin}
+
+        # for these tests we need to enable overlapping ips
+        cfg.CONF.set_default('allow_overlapping_ips', True)
+        if ext_mgr is None:
+            ext_mgr = TestApplianceL3RouterExtensionManager()
+        super(L3AgentRouterApplianceNamespaceTestCase, self).setUp(
+            plugin=plugin, ext_mgr=ext_mgr, service_plugins=service_plugins)
+
+        self.setup_notification_driver()

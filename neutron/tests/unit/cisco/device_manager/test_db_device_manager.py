@@ -22,7 +22,6 @@ import webob.exc
 
 from neutron.api import extensions as api_ext
 from neutron.common import config
-from neutron import context as n_context
 from neutron.manager import NeutronManager
 from neutron.openstack.common import importutils
 from neutron.plugins.cisco.common import cisco_constants as c_constants
@@ -253,6 +252,8 @@ class TestDeviceManagerDBPlugin(
         service_plugins = {'dm_plugin_name': dm_plugin}
         cfg.CONF.set_override('api_extensions_path',
                               device_manager_test_support.extensions_path)
+        # for these tests we need to enable overlapping ips
+        cfg.CONF.set_default('allow_overlapping_ips', True)
         hdm_db.HostingDeviceManagerMixin.supported_extension_aliases = (
             [ciscohostingdevicemanager.HOSTING_DEVICE_MANAGER_ALIAS])
         super(TestDeviceManagerDBPlugin, self).setUp(
@@ -361,8 +362,8 @@ class TestDeviceManagerDBPlugin(
     def _test_get_driver(self, get_method, id=None, test_for_none=False,
                          is_admin=False):
         with self.hosting_device_template() as hdt:
-            context = n_context.Context(
-                None, hdt['hosting_device_template']['tenant_id'],
+            context = self._get_test_context(
+                tenant_id= hdt['hosting_device_template']['tenant_id'],
                 is_admin=is_admin)
             driver_getter = getattr(self._devmgr, get_method)
             template_id = id or hdt['hosting_device_template']['id']
@@ -417,10 +418,9 @@ class TestDeviceManagerDBPlugin(
                         management_port_id=mgmt_port['port']['id'],
                         tenant_bound=tenant_bound,
                         auto_delete=auto_delete) as hd:
-                    context = n_context.Context(
-                        None, hdt['hosting_device_template']['tenant_id'],
-                        is_admin=is_admin, read_deleted="no",
-                        load_admin_roles=True, overwrite=False)
+                    context = self._get_test_context(
+                        tenant_id=hdt['hosting_device_template']['tenant_id'],
+                        is_admin=is_admin)
                     hd_db = self._devmgr._get_hosting_device(
                             context, hd['hosting_device']['id'])
                     with mock.patch.object(
@@ -622,21 +622,24 @@ class TestDeviceManagerDBPlugin(
                                 management_port_id=mp4_id,
                                 auto_delete=auto_delete[4],
                                 no_delete=no_delete[4])):
-                        #initial_hds = self._list('hosting_devices')
-                        context = n_context.get_admin_context()
+                        context = self._get_test_context(is_admin=True)
                         if to_delete is None:
                             self._devmgr.delete_all_hosting_devices(
                                 context, force_delete)
                         elif to_delete == 0:
-                            template = self._devmgr._get_hosting_device_template(
-                                context, hdt0_id)
-                            self._devmgr.delete_all_hosting_devices_by_template(
-                                context, template, force_delete)
+                            template = (
+                                self._devmgr._get_hosting_device_template(
+                                    context, hdt0_id))
+                            (self._devmgr.
+                             delete_all_hosting_devices_by_template(
+                                context, template, force_delete))
                         else:
-                            template = self._devmgr._get_hosting_device_template(
-                                 context, hdt1_id)
-                            self._devmgr.delete_all_hosting_devices_by_template(
-                                context, template, force_delete)
+                            template = (
+                                self._devmgr._get_hosting_device_template(
+                                    context, hdt1_id))
+                            (self._devmgr.
+                             delete_all_hosting_devices_by_template(
+                                context, template, force_delete))
                         result_hds = self._list('hosting_devices')[
                             'hosting_devices']
                         self.assertEqual(len(result_hds),
@@ -680,7 +683,7 @@ class TestDeviceManagerDBPlugin(
                                 'neutron.plugins.cisco.device_manager.rpc.'
                                 'devmgr_rpc_cfgagent_api.'
                                 'DeviceMgrCfgAgentNotify')) as (m1, m2):
-                        context = n_context.get_admin_context()
+                        context = self._get_test_context()
                         self._devmgr.handle_non_responding_hosting_devices(
                             context, None, [hd['hosting_device']['id']])
                         result_hds = self._list('hosting_devices')[
@@ -706,22 +709,57 @@ class TestDeviceManagerDBPlugin(
                                          expected_num_remaining=1,
                                          no_delete=False)
 
+    # hosting device pool maintenance test helper
+    def _test_pool_maintenance(self, desired_slots_free=10, slot_capacity=3,
+                               host_category=VM_CATEGORY, expected=12):
+        with self.hosting_device_template(
+                host_category=host_category, slot_capacity=slot_capacity,
+                desired_slots_free=desired_slots_free,
+                plugging_driver=TEST_PLUGGING_DRIVER) as hdt:
+            hdt_id = hdt['hosting_device_template']['id']
+            with contextlib.nested(self.port(subnet=self._mgmt_subnet,
+                                             no_delete=True),
+                                   self.port(subnet=self._mgmt_subnet,
+                                             no_delete=True)) as (mgmt_port1,
+                                                                  mgmt_port2):
+                with contextlib.nested(
+                        self.hosting_device(
+                                template_id=hdt_id,
+                                management_port_id=mgmt_port1['port']['id'],
+                                auto_delete=True,
+                                no_delete=True),
+                        self.hosting_device(
+                                template_id=hdt_id,
+                                management_port_id=mgmt_port2['port']['id'],
+                                auto_delete=True,
+                                no_delete=True)):
+                        context = self._get_test_context(is_admin=True)
+                        template = self._devmgr._get_hosting_device_template(
+                            context, hdt_id)
+                        self._devmgr._maintain_hosting_device_pool(context,
+                                                                   template)
+                        result_hds = self._list(
+                            'hosting_devices')['hosting_devices']
+                        self.assertEqual(len(result_hds)*slot_capacity,
+                                         expected)
+            self._devmgr.delete_all_hosting_devices(context, True)
+
     # hosting device pool maintenance tests
     def test_vm_based_hosting_device_excessive_slot_deficit_adds_slots(self):
-        pass
+        self._test_pool_maintenance()
 
     def test_vm_based_hosting_device_marginal_slot_deficit_no_change(self):
-        pass
+        self._test_pool_maintenance(desired_slots_free=7, expected=6)
 
     def test_vm_based_hosting_device_excessive_slot_surplus_removes_slots(
             self):
-        pass
+        self._test_pool_maintenance(desired_slots_free=3, expected=3)
 
     def test_vm_based_hosting_device_marginal_slot_surplus_no_change(self):
-        pass
+        self._test_pool_maintenance(desired_slots_free=5, expected=6)
 
     def test_hw_based_hosting_device_no_change(self):
-        pass
+        self._test_pool_maintenance(host_category=HW_CATEGORY, expected=6)
 
 
 class TestDeviceManagerDBPluginXML(TestDeviceManagerDBPlugin):

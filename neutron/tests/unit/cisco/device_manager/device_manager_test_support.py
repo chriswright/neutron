@@ -72,6 +72,8 @@ class DeviceManagerTestSupportMixin:
                 self._delete('ports', p['id'])
             self._delete('subnets', self._mgmt_subnet['subnet']['id'])
             self._delete('networks', self._mgmt_nw['network']['id'])
+        hosting_device_manager_db.HostingDeviceManagerMixin._mgmt_nw_uuid = (
+            None)
 
     # Functions to mock service VM creation.
     def _dispatch_service_vm_mock(self, context, instance_name, vm_image,
@@ -159,6 +161,10 @@ class DeviceManagerTestSupportMixin:
     def _get_fake_resource(self, tenant_id=None, id=None):
         return {'id': id or _uuid(),
                 'tenant_id': tenant_id or _uuid()}
+
+    def _get_test_context(self, user_id=None, tenant_id=None, is_admin=False):
+        return n_context.Context(user_id, tenant_id, is_admin,
+                                 load_admin_roles=True)
 
 
 class TestDeviceManagerExtensionManager(object):

@@ -85,10 +85,6 @@ class L3RouterApplianceAgentSchedulerTestCase(
     def tearDown(self):
         self._test_remove_routertypes()
         self._test_remove_hosting_device_templates()
-        plugin = NeutronManager.get_service_plugins().get(
-            svc_constants.L3_ROUTER_NAT)
-        if plugin:
-            plugin.reset_all()
         super(L3RouterApplianceAgentSchedulerTestCase, self).tearDown()
 
 
@@ -123,8 +119,4 @@ class L3RouterApplianceL3AgentNotifierTestCase(
     def tearDown(self):
         self._test_remove_routertypes()
         self._test_remove_hosting_device_templates()
-        plugin = NeutronManager.get_service_plugins().get(
-            svc_constants.L3_ROUTER_NAT)
-        if plugin:
-            plugin.reset_all()
         super(L3RouterApplianceL3AgentNotifierTestCase, self).tearDown()

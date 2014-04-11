@@ -99,16 +99,6 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
     _svc_vm_mgr = None
 
     @classmethod
-    def reset_all(cls):
-        cls._l3_tenant_uuid = None
-        cls._mgmt_nw_uuid = None
-        cls._mgmt_sec_grp_id = None
-        cls._plugging_drivers = {}
-        cls._hosting_device_drivers = {}
-        cls._cfgagent_scheduler = None
-        cls._svc_vm_mgr = None
-
-    @classmethod
     def l3_tenant_id(cls):
         """Returns id of tenant owning hosting device resources."""
         if cls._l3_tenant_uuid is None:
@@ -499,6 +489,8 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
             # max(0, desired_slots_free-capacity) <= available_slots <=
             #                                       desired_slots_free+capacity
             capacity = template['slot_capacity']
+            if capacity == 0:
+                return
             desired = template['desired_slots_free']
             available = self._get_total_available_slots(
                 context, template['id'], capacity)
@@ -522,7 +514,8 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                     LOG.warn(_('Tried to delete %(requested)d instances based '
                                'on hosting device template %(template)s but '
                                'could only delete %(deleted)d instances'),
-                             {'requested': num_req, 'deleted': num_deleted})
+                             {'requested': num_req, 'template': template['id'],
+                              'deleted': num_deleted})
         finally:
             lock.release()
 
