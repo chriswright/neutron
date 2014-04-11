@@ -475,8 +475,7 @@ class TestDeviceManagerDBPlugin(
         self._test_slots(expected_bind=UNBOUND, initial_bind=REQUESTER,
                          bind=False)
 
-    def test_acquire_slots_release_hosting_device_ownership_affects_all(
-            self):
+    def test_acquire_slots_release_hosting_device_ownership_affects_all(self):
         #TODO
         pass
 
@@ -568,9 +567,9 @@ class TestDeviceManagerDBPlugin(
                          release_pool_maintenance_expected=False)
 
     # hosting device deletion test helper
-    def _test_delete(self, auto_delete=None, no_delete=None,
-                     force_delete=True, expected_num_hds=0):
-        auto_delete = auto_delete or [True, True, True, True, True]
+    def _test_delete(self, to_delete=None, auto_delete=None, no_delete=None,
+                     force_delete=True, expected_num_remaining=0):
+        auto_delete = auto_delete or [True, False, False, True, True]
         no_delete = no_delete or [True, True, True, True, True]
         with contextlib.nested(self.hosting_device_template(),
                                self.hosting_device_template()) as (hdt1, hdt2):
@@ -579,13 +578,13 @@ class TestDeviceManagerDBPlugin(
             with contextlib.nested(self.port(subnet=self._mgmt_subnet,
                                              no_delete=no_delete[0]),
                                    self.port(subnet=self._mgmt_subnet,
-                                             no_delete=no_delete[0]),
+                                             no_delete=no_delete[1]),
                                    self.port(subnet=self._mgmt_subnet,
-                                             no_delete=no_delete[0]),
+                                             no_delete=no_delete[2]),
                                    self.port(subnet=self._mgmt_subnet,
-                                             no_delete=no_delete[0]),
+                                             no_delete=no_delete[3]),
                                    self.port(subnet=self._mgmt_subnet,
-                                             no_delete=no_delete[0])) as (
+                                             no_delete=no_delete[4])) as (
                 mgmt_port0, mgmt_port1, mgmt_port2, mgmt_port3, mgmt_port4):
                 mp0_id = mgmt_port0['port']['id']
                 mp1_id = mgmt_port1['port']['id']
@@ -594,64 +593,135 @@ class TestDeviceManagerDBPlugin(
                 mp4_id = mgmt_port4['port']['id']
                 with contextlib.nested(
                         self.hosting_device(
+                                device_id='0_hdt0_id',
                                 template_id=hdt0_id,
                                 management_port_id=mp0_id,
                                 auto_delete=auto_delete[0],
                                 no_delete=no_delete[0]),
                         self.hosting_device(
+                                device_id='1_hdt1_id',
                                 template_id=hdt1_id,
                                 management_port_id=mp1_id,
                                 auto_delete=auto_delete[1],
                                 no_delete=no_delete[1]),
                         self.hosting_device(
+                                device_id='2_hdt0_id',
                                 template_id=hdt0_id,
                                 management_port_id=mp2_id,
                                 auto_delete=auto_delete[2],
                                 no_delete=no_delete[2]),
                         self.hosting_device(
+                                device_id='3_hdt0_id',
                                 template_id=hdt0_id,
                                 management_port_id=mp3_id,
                                 auto_delete=auto_delete[3],
                                 no_delete=no_delete[3]),
                         self.hosting_device(
+                                device_id='4_hdt1_id',
                                 template_id=hdt1_id,
                                 management_port_id=mp4_id,
                                 auto_delete=auto_delete[4],
                                 no_delete=no_delete[4])):
                         #initial_hds = self._list('hosting_devices')
                         context = n_context.get_admin_context()
-                        self._devmgr.delete_all_hosting_devices(context,
-                                                                force_delete)
+                        if to_delete is None:
+                            self._devmgr.delete_all_hosting_devices(
+                                context, force_delete)
+                        elif to_delete == 0:
+                            template = self._devmgr._get_hosting_device_template(
+                                context, hdt0_id)
+                            self._devmgr.delete_all_hosting_devices_by_template(
+                                context, template, force_delete)
+                        else:
+                            template = self._devmgr._get_hosting_device_template(
+                                 context, hdt1_id)
+                            self._devmgr.delete_all_hosting_devices_by_template(
+                                context, template, force_delete)
                         result_hds = self._list('hosting_devices')[
                             'hosting_devices']
-                        self.assertEqual(len(result_hds), expected_num_hds)
+                        self.assertEqual(len(result_hds),
+                                         expected_num_remaining)
 
     # hosting device deletion tests
     def test_delete_all_hosting_devices(self):
         self._test_delete()
 
     def test_delete_all_managed_hosting_devices(self):
-        self._test_delete(auto_delete=[True, False, False, True, True],
-                          no_delete=[True, True, True, True, True],
-                          force_delete=False, expected_num_hds=2)
+        self._test_delete(no_delete=[True, False, False, True, True],
+                          force_delete=False, expected_num_remaining=2)
 
     def test_delete_all_hosting_devices_by_template(self):
-        pass
+        self._test_delete(to_delete=1, expected_num_remaining=3,
+                          no_delete=[False, True, False, False, True])
 
     def test_delete_all_managed_hosting_devices_by_template(self):
-        pass
+        self._test_delete(to_delete=1, expected_num_remaining=4,
+                          no_delete=[False, False, False, False, True],
+                          force_delete=False)
+
+    # handled failed hosting device test helper
+    def _test_failed_hosting_device(self, host_category=VM_CATEGORY,
+                                    expected_num_remaining=0,
+                                    auto_delete=True, no_delete=True):
+        with self.hosting_device_template(host_category=host_category) as hdt:
+            hdt_id = hdt['hosting_device_template']['id']
+            with self.port(subnet=self._mgmt_subnet,
+                           no_delete=no_delete) as mgmt_port:
+                with self.hosting_device(
+                                template_id=hdt_id,
+                                management_port_id=mgmt_port['port']['id'],
+                                auto_delete=auto_delete,
+                                no_delete=no_delete) as hd:
+                    with contextlib.nested(
+                            mock.patch(
+                                'neutron.manager.NeutronManager'
+                                '.get_service_plugins'),
+                            mock.patch(
+                                'neutron.plugins.cisco.device_manager.rpc.'
+                                'devmgr_rpc_cfgagent_api.'
+                                'DeviceMgrCfgAgentNotify')) as (m1, m2):
+                        context = n_context.get_admin_context()
+                        self._devmgr.handle_non_responding_hosting_devices(
+                            context, None, [hd['hosting_device']['id']])
+                        result_hds = self._list('hosting_devices')[
+                            'hosting_devices']
+                        self.assertEqual(len(result_hds),
+                                         expected_num_remaining)
+                        l3mock = (NeutronManager.get_service_plugins().get().
+                                  handle_non_responding_hosting_devices)
+                        l3mock.assert_called_once()
+                        if expected_num_remaining == 0:
+                            m2.hosting_device_removed.assert_called_once()
 
     # handled failed hosting device tests
-    def test_service_plugins_informed_about_failed_hosting_device(self):
-        pass
+    def test_failed_managed_vm_based_hosting_device_gets_deleted(self):
+        self._test_failed_hosting_device()
 
-    def test_vm_based_failed_hosting_device_gets_deleted(self):
-        pass
+    def test_failed_non_managed_vm_based_hosting_device_not_deleted(self):
+        self._test_failed_hosting_device(expected_num_remaining=1,
+                                         auto_delete=False, no_delete=False)
 
-    def test_non_vm_based_failed_hosting_device_not_deleted(self):
-        pass
+    def test_failed_non_vm_based_hosting_device_not_deleted(self):
+        self._test_failed_hosting_device(host_category=HW_CATEGORY,
+                                         expected_num_remaining=1,
+                                         no_delete=False)
 
     # hosting device pool maintenance tests
+    def test_vm_based_hosting_device_excessive_slot_deficit_adds_slots(self):
+        pass
+
+    def test_vm_based_hosting_device_marginal_slot_deficit_no_change(self):
+        pass
+
+    def test_vm_based_hosting_device_excessive_slot_surplus_removes_slots(
+            self):
+        pass
+
+    def test_vm_based_hosting_device_marginal_slot_surplus_no_change(self):
+        pass
+
+    def test_hw_based_hosting_device_no_change(self):
+        pass
 
 
 class TestDeviceManagerDBPluginXML(TestDeviceManagerDBPlugin):

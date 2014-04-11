@@ -413,21 +413,21 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
 
     def handle_non_responding_hosting_devices(self, context, cfg_agent,
                                               hosting_device_ids):
-        query = self.get_hosting_devices_qry(context.elevated(),
-                                             hosting_device_ids)
-        hosting_devices = query.all()
-        # 'hosting_info' is dictionary with ids of removed hosting
-        # devices and the affected logical resources for each
-        # removed hosting device:
-        #    {'hd_id1': {'routers': [id1, id2, ...],
-        #                'fw': [id1, ...],
-        #                 ...},
-        #     'hd_id2': {'routers': [id3, id4, ...]},
-        #                'fw': [id1, ...],
-        #                ...},
-        #     ...}
-        hosting_info = {}
         with context.session.begin(subtransactions=True):
+            e_context = context.elevated()
+            hosting_devices = self.get_hosting_devices_qry(
+                e_context, hosting_device_ids).all()
+            # 'hosting_info' is dictionary with ids of removed hosting
+            # devices and the affected logical resources for each
+            # removed hosting device:
+            #    {'hd_id1': {'routers': [id1, id2, ...],
+            #                'fw': [id1, ...],
+            #                 ...},
+            #     'hd_id2': {'routers': [id3, id4, ...]},
+            #                'fw': [id1, ...],
+            #                ...},
+            #     ...}
+            hosting_info = {id: {} for id in hosting_device_ids}
             #TODO(bobmel): Modify so service plugins register themselves
             try:
                 l3plugin = manager.NeutronManager.get_service_plugins().get(
@@ -436,7 +436,6 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                     context, hosting_devices, hosting_info)
             except AttributeError:
                 pass
-            e_context = context.elevated()
             for hd in hosting_devices:
                 if self._process_non_responsive_hosting_device(e_context, hd):
                     devmgr_rpc.DeviceMgrCfgAgentNotify.hosting_device_removed(
@@ -448,7 +447,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
         :param hosting_device: db object for hosting device
         :return: True if hosting_device has been deleted, otherwise False
         """
-        if (hosting_device['host_category'] == VM_CATEGORY and
+        if (hosting_device['template']['host_category'] == VM_CATEGORY and
                 hosting_device['auto_delete']):
             self._delete_dead_service_vm_hosting_device(context,
                                                         hosting_device)
@@ -636,7 +635,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
             context, hosting_device['template_id'])
         hosting_device_drv = self.get_hosting_device_driver(
             context, hosting_device['template_id'])
-        if (plugging_drv is None or hosting_device_drv is None):
+        if plugging_drv is None or hosting_device_drv is None:
             return
         res = plugging_drv.get_hosting_device_resources(
             context, hosting_device['id'], self.l3_tenant_id(),
