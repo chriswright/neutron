@@ -44,7 +44,7 @@ cfg.CONF.register_opts(SERVICE_VM_LIB_OPTS)
 class ServiceVMManager:
 
     def __init__(self, user=None, passwd=None, l3_admin_tenant=None,
-                 auth_url=None):
+                 auth_url=''):
         self._nclient = client.Client(user, passwd, l3_admin_tenant, auth_url,
                                       service_type="compute")
 

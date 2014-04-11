@@ -97,8 +97,8 @@ class HostingDevice(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     admin_state_up = sa.Column(sa.Boolean, nullable=False, default=True)
     # 'management_port_id' is the Neutron Port used for management interface
     management_port_id = sa.Column(sa.String(36),
-                                   sa.ForeignKey('ports.id'),
-                                   nullable=False)
+                                   sa.ForeignKey('ports.id',
+                                                 ondelete="SET NULL"))
     management_port = orm.relationship(models_v2.Port)
     # 'protocol_port' is udp/tcp port of hosting device. May be empty.
     protocol_port = sa.Column(sa.Integer)

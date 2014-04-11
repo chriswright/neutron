@@ -18,6 +18,7 @@ import mock
 from oslo.config import cfg
 
 from neutron.api.v2 import attributes
+from neutron.common import exceptions as n_exc
 from neutron import context as n_context
 from neutron.db import agents_db
 from neutron.manager import NeutronManager
@@ -42,6 +43,10 @@ extensions_path = ':' + neutron.plugins.__path__[0] + '/cisco/extensions'
 
 
 class DeviceManagerTestSupportMixin:
+
+    @property
+    def _core_plugin(self):
+        return NeutronManager.get_plugin()
 
     def _mock_l3_admin_tenant(self):
         # Mock l3 admin tenant
@@ -141,8 +146,7 @@ class DeviceManagerTestSupportMixin:
         # Mock creation/deletion of service VMs
         self.dispatch_pool_maintenance_job_fcn_p = mock.patch(
             'neutron.plugins.cisco.device_manager.hosting_device_manager_db'
-            '.HostingDeviceManagerMixin._dispatch_pool_maintenance_job')#,
-#            self._dispatch_service_vm_mock)
+            '.HostingDeviceManagerMixin._dispatch_pool_maintenance_job')
         self.dispatch_pool_maintenance_job_fcn_p .start()
 
     def _test_remove_all_hosting_devices(self):

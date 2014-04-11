@@ -35,8 +35,7 @@ FW_PLUGIN_KLASS = (
 class TestDeviceManagerCallbacks(test_db_firewall.PluginDbTestCase):
 
     def setUp(self):
-        super(TestFirewallCallbacks,
-              self).setUp(fw_plugin=FW_PLUGIN_KLASS)
+        super(TestFirewallCallbacks, self).setUp(fw_plugin=FW_PLUGIN_KLASS)
         self.callbacks = self.plugin.callbacks
 
     def test_set_firewall_status(self):
