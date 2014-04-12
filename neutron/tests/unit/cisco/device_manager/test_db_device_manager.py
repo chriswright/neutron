@@ -390,7 +390,6 @@ class TestDeviceManagerDBPlugin(
                         ciscohostingdevicemanager.HostingDeviceNotFound,
                         self.plugin.get_hosting_device, ctx, hd_id)
 
-    #TODO: fix this test
     def test_delete_hosting_device_in_use_fails(self):
         ctx = n_context.get_admin_context()
         with self.hosting_device_template(slot_capacity=1) as hdt:
