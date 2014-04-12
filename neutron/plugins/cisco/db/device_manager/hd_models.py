@@ -126,8 +126,8 @@ class SlotAllocation(model_base.BASEV2):
                             sa.ForeignKey('hostingdevicetemplates.id'),
                             nullable=False)
     hosting_device_id = sa.Column(sa.String(36),
-                                  sa.ForeignKey('hostingdevices.id',
-                                                ondelete='CASCADE'),
+                                  sa.ForeignKey('hostingdevices.id'),
+#                                                ondelete='CASCADE'),
                                   nullable=False)
     logical_resource_id = sa.Column(sa.String(36), primary_key=True,
                                     nullable=False)

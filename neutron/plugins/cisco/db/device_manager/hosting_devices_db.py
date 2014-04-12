@@ -14,9 +14,12 @@
 #
 # @author: Bob Melander, Cisco Systems, Inc.
 
+from sqlalchemy import exc as sql_exc
 from sqlalchemy.orm import exc
 
 from neutron.db import db_base_plugin_v2 as base_db
+from neutron.openstack.common.db import exception as db_exc
+from neutron.openstack.common import excutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import timeutils
 from neutron.openstack.common import uuidutils
@@ -79,12 +82,17 @@ class HostingDeviceDBMixin(
 
     def delete_hosting_device(self, context, id):
         LOG.debug(_("delete_hosting_device() called"))
-        with context.session.begin(subtransactions=True):
-            hd_query = context.session.query(
-                HostingDevice).with_lockmode('update')
-            hd_db = hd_query.filter_by(id=id).one()
-             #TODO(bobmel): ensure no slots are allocated
-            context.session.delete(hd_db)
+        try:
+            with context.session.begin(subtransactions=True):
+                hd_query = context.session.query(
+                    HostingDevice).with_lockmode('update')
+                hd_db = hd_query.filter_by(id=id).one()
+                context.session.delete(hd_db)
+        except db_exc.DBError as e:
+            with excutils.save_and_reraise_exception() as ctxt:
+                if isinstance(e.inner_exception, sql_exc.IntegrityError):
+                    ctxt.reraise = False
+                    raise ciscohostingdevicemanager.HostingDeviceInUse(id=id)
 
     def get_hosting_device(self, context, id, fields=None):
         LOG.debug(_("get_hosting_device() called"))
@@ -140,15 +148,18 @@ class HostingDeviceDBMixin(
 
     def delete_hosting_device_template(self, context, id):
         LOG.debug(_("delete_hosting_device_template() called"))
-        with context.session.begin(subtransactions=True):
-            hd_query = context.session.query(HostingDevice)
-            if hd_query.filter_by(id=id).first() is not None:
-                raise ciscohostingdevicemanager.HostingDeviceTemplateInUse(
-                    id=id)
-            hdt_query = context.session.query(
-                HostingDeviceTemplate).with_lockmode('update')
-            hdt_db = hdt_query.filter_by(id=id).one()
-            context.session.delete(hdt_db)
+        try:
+            with context.session.begin(subtransactions=True):
+                hdt_query = context.session.query(
+                    HostingDeviceTemplate).with_lockmode('update')
+                hdt_db = hdt_query.filter_by(id=id).one()
+                context.session.delete(hdt_db)
+        except db_exc.DBError as e:
+            with excutils.save_and_reraise_exception() as ctxt:
+                if isinstance(e.inner_exception, sql_exc.IntegrityError):
+                    ctxt.reraise = False
+                    raise (ciscohostingdevicemanager.
+                           HostingDeviceTemplateInUse(id=id))
 
     def get_hosting_device_template(self, context, id, fields=None):
         LOG.debug(_("get_hosting_device_template() called"))

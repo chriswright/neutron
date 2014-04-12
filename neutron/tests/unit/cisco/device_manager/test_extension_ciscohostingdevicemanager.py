@@ -225,8 +225,9 @@ class CiscoHostingDeviceManagerTestCase(test_api_v2_ext.ExtensionTestCase):
         self._test_entity_delete('hosting_device_template')
 
 
-class CiscoHostingDeviceManagerTestCaseXML(CiscoHostingDeviceManagerTestCase):
-    fmt = 'xml'
+#class CiscoHostingDeviceManagerTestCaseXML(
+# CiscoHostingDeviceManagerTestCase):
+#    fmt = 'xml'
 
 
 class TestCiscoHostingDeviceManagerAttributeValidators(base.BaseTestCase):

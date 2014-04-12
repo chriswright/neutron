@@ -22,6 +22,7 @@ import webob.exc
 
 from neutron.api import extensions as api_ext
 from neutron.common import config
+from neutron import context as n_context
 from neutron.manager import NeutronManager
 from neutron.openstack.common import importutils
 from neutron.plugins.cisco.common import cisco_constants as c_constants
@@ -307,13 +308,117 @@ class TestDeviceManagerDBPlugin(
                     for k, v in attrs.iteritems():
                         self.assertEqual(hd['hosting_device'][k], v)
 
-    def _test_delete_hosting_device_not_in_use_succeeds(self):
-        #TODO
-        pass
+    def test_show_hosting_device(self):
+        device_id = "device_XYZ"
+        with self.hosting_device_template() as hdt:
+            with self.port(subnet=self._mgmt_subnet) as mgmt_port:
+                attrs = self._get_test_hosting_device_attr(
+                    device_id=device_id,
+                    template_id=hdt['hosting_device_template']['id'],
+                    management_port_id=mgmt_port['port']['id'])
+                with self.hosting_device(
+                        device_id=device_id,
+                        template_id=hdt['hosting_device_template']['id'],
+                        management_port_id=mgmt_port['port']['id']) as hd:
+                    req = self.new_show_request(
+                        'hosting_devices', hd['hosting_device']['id'],
+                        fmt=self.fmt)
+                    res = self.deserialize(self.fmt,
+                                           req.get_response(self.ext_api))
+                    for k, v in attrs.iteritems():
+                        self.assertEqual(res['hosting_device'][k], v)
 
-    def _test_delete_hosting_device_in_use_fails(self):
-        #TODO
-        pass
+    def test_list_hosting_devices(self):
+        with self.hosting_device_template() as hdt:
+            hdt_id = hdt['hosting_device_template']['id']
+            with contextlib.nested(self.port(subnet=self._mgmt_subnet),
+                                   self.port(subnet=self._mgmt_subnet),
+                                   self.port(subnet=self._mgmt_subnet)) as (
+                    mgmt_port1, mgmt_port2, mgmt_port3):
+                mp1_id = mgmt_port1['port']['id']
+                mp2_id = mgmt_port2['port']['id']
+                mp3_id = mgmt_port3['port']['id']
+                with contextlib.nested(
+                        self.hosting_device(name='hd1',
+                                            template_id=hdt_id,
+                                            management_port_id=mp1_id),
+                        self.hosting_device(name='hd2',
+                                            template_id=hdt_id,
+                                            management_port_id=mp2_id),
+                        self.hosting_device(name='hd3',
+                                            template_id=hdt_id,
+                                            management_port_id=mp3_id)) as hds:
+                        self._test_list_resources(
+                            'hosting_device', hds,
+                            query_params='template_id=' + hdt_id)
+
+    def test_update_hosting_device(self):
+        new_device_id = "device_XYZ"
+        with self.hosting_device_template() as hdt:
+            hdt_id = hdt['hosting_device_template']['id']
+            with self.port(subnet=self._mgmt_subnet) as mgmt_port:
+                mgmt_port_id = mgmt_port['port']['id']
+                attrs = self._get_test_hosting_device_attr(
+                    device_id=new_device_id,
+                    template_id=hdt['hosting_device_template']['id'],
+                    management_port_id=mgmt_port['port']['id'])
+                with self.hosting_device(
+                        template_id=hdt_id,
+                        management_port_id=mgmt_port_id) as hd:
+                    data = {'hosting_device': {'device_id': new_device_id}}
+                    req = self.new_update_request('hosting_devices', data,
+                                                  hd['hosting_device']['id'])
+                    res = self.deserialize(self.fmt,
+                                           req.get_response(self.ext_api))
+                    for k, v in attrs.iteritems():
+                        self.assertEqual(res['hosting_device'][k], v)
+
+    def test_delete_hosting_device_not_in_use_succeeds(self):
+        ctx = n_context.get_admin_context()
+        with self.hosting_device_template() as hdt:
+            hdt_id = hdt['hosting_device_template']['id']
+            with self.port(subnet=self._mgmt_subnet) as mgmt_port:
+                mgmt_port_id = mgmt_port['port']['id']
+                with self.hosting_device(template_id=hdt_id,
+                                         management_port_id=mgmt_port_id,
+                                         no_delete=True) as hd:
+                    hd_id = hd['hosting_device']['id']
+                    req = self.new_delete_request('hosting_devices', hd_id)
+                    res = req.get_response(self.ext_api)
+                    self.assertEqual(res.status_int, 204)
+                    self.assertRaises(
+                        ciscohostingdevicemanager.HostingDeviceNotFound,
+                        self.plugin.get_hosting_device, ctx, hd_id)
+
+    #TODO: fix this test
+    def test_delete_hosting_device_in_use_fails(self):
+        ctx = n_context.get_admin_context()
+        with self.hosting_device_template(slot_capacity=1) as hdt:
+            hdt_id = hdt['hosting_device_template']['id']
+            with self.port(subnet=self._mgmt_subnet) as mgmt_port:
+                mgmt_port_id = mgmt_port['port']['id']
+                with self.hosting_device(
+                        template_id=hdt_id,
+                        management_port_id=mgmt_port_id) as hd:
+                    with mock.patch.object(
+                            hdm_db.HostingDeviceManagerMixin,
+                            '_dispatch_pool_maintenance_job'):
+                        hd_id = hd['hosting_device']['id']
+                        hd_db = self._devmgr._get_hosting_device(ctx, hd_id)
+                        resource = self._get_fake_resource()
+                        self.assertTrue(
+                            self._devmgr.acquire_hosting_device_slots(
+                                ctx, hd_db, resource, 1))
+                        self.assertRaises(
+                            ciscohostingdevicemanager.HostingDeviceInUse,
+                            self._devmgr.delete_hosting_device, ctx, hd_id)
+                        #self._devmgr.delete_hosting_device(ctx, hd_id)
+                        req = self.new_show_request('hosting_devices', hd_id,
+                                                    fmt=self.fmt)
+                        res = req.get_response(self.ext_api)
+                        self.assertEqual(res.status_int, 200)
+                        self._devmgr.release_hosting_device_slots(ctx, hd_db,
+                                                                  resource, 1)
 
     def test_create_vm_hosting_device_template(self):
         attrs = self._get_test_hosting_device_template_attr()
@@ -338,25 +443,71 @@ class TestDeviceManagerDBPlugin(
             for k, v in attrs.iteritems():
                 self.assertEqual(hdt['hosting_device_template'][k], v)
 
-    def _test_show_hosting_device_template(self):
-        #TODO
-        pass
+    def test_show_hosting_device_template(self):
+        name = "hosting_device_template1"
+        attrs = self._get_test_hosting_device_template_attr(name=name)
+        with self.hosting_device_template(name=name) as hdt:
+            req = self.new_show_request('hosting_device_templates',
+                                        hdt['hosting_device_template']['id'],
+                                        fmt=self.fmt)
+            res = self.deserialize(self.fmt,
+                                   req.get_response(self.ext_api))
+            for k, v in attrs.iteritems():
+                self.assertEqual(res['hosting_device_template'][k], v)
 
-    def _test_list_hosting_device_templates(self):
-        #TODO
-        pass
+    def test_list_hosting_device_templates(self):
+        with contextlib.nested(
+                self.hosting_device_template(name='hdt1',
+                                             host_category=VM_CATEGORY,
+                                             image='an_image'),
+                self.hosting_device_template(name='hdt2',
+                                             host_category=HW_CATEGORY,
+                                             image='an_image'),
+                self.hosting_device_template(name='hdt3',
+                                             host_category=NN_CATEGORY,
+                                             image='an_image')) as hdts:
+                self._test_list_resources('hosting_device_template', hdts,
+                                          query_params='image=an_image')
 
-    def _test_update_hosting_device_template(self):
-        #TODO
-        pass
+    def test_update_hosting_device_template(self):
+        name = "new_hosting_device_template1"
+        attrs = self._get_test_hosting_device_template_attr(name=name)
+        with self.hosting_device_template() as hdt:
+            data = {'hosting_device_template': {'name': name}}
+            req = self.new_update_request('hosting_device_templates', data,
+                                          hdt['hosting_device_template']['id'])
+            res = self.deserialize(self.fmt,
+                                   req.get_response(self.ext_api))
+            for k, v in attrs.iteritems():
+                self.assertEqual(res['hosting_device_template'][k], v)
 
-    def _test_delete_hosting_device_template_not_in_use_succeeds(self):
-        #TODO
-        pass
+    def test_delete_hosting_device_template_not_in_use_succeeds(self):
+        ctx = n_context.get_admin_context()
+        with self.hosting_device_template(no_delete=True) as hdt:
+            hdt_id = hdt['hosting_device_template']['id']
+            req = self.new_delete_request('hosting_device_templates', hdt_id)
+            res = req.get_response(self.ext_api)
+            self.assertEqual(res.status_int, 204)
+            self.assertRaises(
+                ciscohostingdevicemanager.HostingDeviceTemplateNotFound,
+                self._devmgr.get_hosting_device_template, ctx, hdt_id)
 
-    def _test_delete_hosting_device_template_in_use_fails(self):
-        #TODO
-        pass
+    def test_delete_hosting_device_template_in_use_fails(self):
+        ctx = n_context.get_admin_context()
+        with self.hosting_device_template() as hdt:
+            hdt_id = hdt['hosting_device_template']['id']
+            with self.port(subnet=self._mgmt_subnet) as mgmt_port:
+                mgmt_port_id = mgmt_port['port']['id']
+                with self.hosting_device(template_id=hdt_id,
+                                         management_port_id=mgmt_port_id):
+                    self.assertRaises(
+                        ciscohostingdevicemanager.HostingDeviceTemplateInUse,
+                        self._devmgr.delete_hosting_device_template, ctx,
+                        hdt_id)
+                    req = self.new_show_request('hosting_device_templates',
+                                                hdt_id, fmt=self.fmt)
+                    res = req.get_response(self.ext_api)
+                    self.assertEqual(res.status_int, 200)
 
     # driver request test helper
     def _test_get_driver(self, get_method, id=None, test_for_none=False,

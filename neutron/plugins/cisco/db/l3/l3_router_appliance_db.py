@@ -338,9 +338,15 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
                     except KeyError:
                         affected_resources[hd['id']] = {'routers': router_ids}
 
-#    # Make parent's call to get_sync_data(...) a noop
-#    def get_sync_data(self, context, router_ids=None, active=None):
-#        return []
+    def get_sync_data(self, context, router_ids=None, active=None):
+        # ensure only routers of namespace type are returned
+        r_f = {'routertype_id': [self.get_namespace_router_type_id(context)]}
+        if router_ids is not None:
+            r_f['id'] = router_ids
+        routers = self.get_routers(context, filters=r_f, fields=['id']) or []
+        router_ids = [item['id'] for item in routers]
+        return super(L3RouterApplianceDBMixin, self).get_sync_data(
+            context, router_ids, active)
 
     def get_sync_data_ext(self, context, router_ids=None, active=None):
         """Query routers and their related floating_ips, interfaces.
