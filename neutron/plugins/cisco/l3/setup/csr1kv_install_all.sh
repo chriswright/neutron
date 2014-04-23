@@ -15,7 +15,7 @@ source ~/devstack/openrc admin demo
 source ~/devstack/openrc $osn L3AdminTenant
 ./setup_nova_and_glance_for_csr1kv_l3.sh $osn $plugin $localrc
 ./setup_neutron_for_csr1kv_l3.sh $osn $plugin $localrc
-sudo -E ./setup_l3cfgagent_networking.sh $osn $plugin
+./setup_l3cfgagent_networking.sh $osn $plugin
 source ~/devstack/openrc admin demo
 ./setup_test_networks.sh $osn $plugin
 ./setup_interface_on_extnet1_for_demo.sh $osn $plugin

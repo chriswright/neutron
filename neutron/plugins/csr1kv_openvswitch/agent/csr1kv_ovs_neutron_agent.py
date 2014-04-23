@@ -31,7 +31,6 @@ from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import config as logging_config
 from neutron.common import constants as q_const
-from neutron.common import legacy
 from neutron.common import topics
 from neutron.common import utils as q_utils
 from neutron import context
@@ -1538,7 +1537,6 @@ def main():
     cfg.CONF(project='neutron')
     logging_config.setup_logging(cfg.CONF)
     q_utils.log_opt_values(LOG)
-    legacy.modernize_quantum_config(cfg.CONF)
 
     try:
         agent_config = create_agent_config_map(cfg.CONF)

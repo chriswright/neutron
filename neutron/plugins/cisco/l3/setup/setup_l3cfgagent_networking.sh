@@ -21,7 +21,6 @@ vethHostSideName=l3cfgagent_hs
 vethBridgeSideName=l3cfgagent_bs
 
 
-
 tenantId=`keystone tenant-get $l3AdminTenant 2>&1 | awk '/No tenant|id/ { if ($1 == "No") print "No"; else print $4; }'`
 if [ "$tenantId" == "No" ]; then
     echo "No $l3AdminTenant exists, please create one using the setup_keystone... script then re-run this script."
