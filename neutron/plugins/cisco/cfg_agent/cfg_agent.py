@@ -793,7 +793,7 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
 
     def _agent_registration(self):
         for attempts in xrange(MAX_REGISTRATION_ATTEMPTS):
-            #self.send_agent_report(self.agent_state)
+            self.send_agent_report(self.agent_state)
             res = self.devmgr_rpc.register_for_duty(self.context)
             if res is True:
                 LOG.info(_("[Agent registration] Agent successfully "
