@@ -7,7 +7,7 @@
 # release >=Havana and release <=Grizzly, respectively.
 osn=${1:-neutron}
 plugin=${2:-n1kv}
-#plugin=${2:-osn}
+#plugin=${2:-ovs}
 localrc=$3
 
 source ~/devstack/openrc admin demo
