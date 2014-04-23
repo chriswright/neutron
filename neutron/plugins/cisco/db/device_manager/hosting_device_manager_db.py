@@ -354,15 +354,16 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
             query = query.filter_by(logical_resource_id=resource_id)
         return query.scalar() or 0
 
-    def get_hosting_devices_qry(self, context, hosting_device_ids):
+    def get_hosting_devices_qry(self, context, hosting_device_ids,
+                                load_agent=True):
         """Returns hosting devices with <hosting_device_ids>."""
         query = context.session.query(HostingDevice)
+        if load_agent:
+            query = query.options(joinedload('cfg_agent'))
         if len(hosting_device_ids) > 1:
-            query = query.options(joinedload('cfg_agent')).filter(
-                HostingDevice.id.in_(hosting_device_ids))
+            query = query.filter(HostingDevice.id.in_(hosting_device_ids))
         else:
-            query = query.options(joinedload('cfg_agent')).filter(
-                HostingDevice.id == hosting_device_ids[0])
+            query = query.filter(HostingDevice.id == hosting_device_ids[0])
         return query
 
     def delete_all_hosting_devices(self, context, force_delete=False):
@@ -465,6 +466,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
 
     def _dispatch_pool_maintenance_job(self, template):
         mgr_context = neutron_context.get_admin_context()
+        mgr_context.tenant_id = self.l3_tenant_id()
         self._gt_pool.spawn_n(self._maintain_hosting_device_pool, mgr_context,
                               template)
 
@@ -654,7 +656,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
         num_devices = query.filter_by(template_id=template_id,
                                       admin_state_up=True,
                                       tenant_bound=expr.null()).one()[0] or 0
-        return num_devices * capacity - total_allocated
+        return max(0, int(num_devices * capacity - total_allocated))
 
     def _exclusively_used(self, context, hosting_device, tenant_id):
         """Checks if only <tenant_id>'s resources use <hosting_device>."""

@@ -377,9 +377,9 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
                        'type': r_hd_binding['router_type_id']})
             return False
         with context.session.begin(subtransactions=True):
-            selected_hd = scheduler.schedule_router(self, context,
+            result = scheduler.schedule_router(self, context,
                                                     r_hd_binding)
-            if selected_hd is None:
+            if result is None:
                 # No running hosting device is able to host this router
                 # so backlog it for another scheduling attempt later.
                 self.backlog_router(r_hd_binding['router'])
@@ -390,12 +390,15 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
                 return False
             else:
                 router = r_hd_binding['router']
+                e_context = context.elevated()
+                selected_hd = self._dev_mgr.get_hosting_devices_qry(
+                    e_context, [result[0]], load_agent=False).one()
                 acquired = self._dev_mgr.acquire_hosting_device_slots(
-                    context.elevated(), selected_hd, router,
+                    e_context, selected_hd, router,
                     r_hd_binding['router_type']['slot_need'],
                     exclusive=r_hd_binding['share_hosting_device'])
                 if acquired:
-                    r_hd_binding.hosting_device_id = selected_hd[0]['id']
+                    r_hd_binding.hosting_device_id = selected_hd['id']
                     self.remove_router_from_backlog(router['id'])
                 else:
                     LOG.debug(_('Could not allocated slots for router '
@@ -407,8 +410,8 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
                     self.backlog_router(router)
                     return False
             if r_hd_binding.hosting_device_id is not None:
-                LOG.info(_('Succesfully scheduled router %(r_id)s to hosting '
-                           'device %(d_id)s'),
+                LOG.info(_('Successfully scheduled router %(r_id)s to '
+                           'hosting device %(d_id)s'),
                          {'r_id': r_hd_binding['router']['id'],
                           'd_id': r_hd_binding.hosting_device_id})
                 context.session.add(r_hd_binding)
@@ -423,14 +426,13 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
             context, r_hd_binding['router_type_id'])
         if scheduler is None:
             return False
-        result = scheduler.unschedule_router_from_hosting_device(
-            self, context, r_hd_binding)
+        result = scheduler.unschedule_router(self, context, r_hd_binding)
         if result:
             self._dev_mgr.release_hosting_device_slots(
                 context, r_hd_binding['hosting_device'],
                 r_hd_binding['router'],
                 r_hd_binding['router_type']['slot_need'])
-            LOG.info(_('Succesfully un-scheduled router %(r_id)s from '
+            LOG.info(_('Successfully un-scheduled router %(r_id)s from '
                        'hosting device %(d_id)s'),
                      {'r_id': r_hd_binding['router']['id'],
                       'd_id': r_hd_binding.hosting_device_id})
@@ -603,7 +605,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
             template = binding_info.hosting_device.template
             router['hosting_device'] = {
                 'id': hosting_device.id,
-                'name': hosting_device.name,
+                'name': template.name,
                 'template_id': template.id,
                 'host_category': template.host_category,
                 'service_types': template.service_types,

@@ -69,7 +69,7 @@ class L3RouterHostingDeviceScheduler(object):
         #     hd.tenant_bound='t10' OR
         #     (hd.tenant_bound IS NULL AND sa.hosting_device_id IS NULL))
         # GROUP BY hosting_device_id
-        # HAVING sum(num_allocated) <= 8
+        # HAVING sum(num_allocated) <= 8 OR sum(num_allocated) IS NULL
         # ORDER BY created_at;
         router = r_hd_binding['router']
         tenant_id = router['tenant_id']
@@ -101,7 +101,8 @@ class L3RouterHostingDeviceScheduler(object):
                          SlotAllocation.hosting_device_id == expr.null())))
         query = query.group_by(HostingDevice.id)
         query = query.having(
-            func.sum(SlotAllocation.num_allocated) <= slot_threshold)
+            or_(func.sum(SlotAllocation.num_allocated) <= slot_threshold,
+                func.sum(SlotAllocation.num_allocated == expr.null())))
         query = query.order_by(HostingDevice.created_at)
         candidates = query.all()
         if len(candidates) == 0:
