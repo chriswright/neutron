@@ -193,8 +193,10 @@ fi
 echo -n "Checking if 'Network_Node_template' is registered as hosting device template in $osn ..."
 if [ "$plugin" == "n1kv" ]; then
    db="cisco_$osn"
+   agent_driver="neutron.plugins.cisco.cfg_agent.csr1kv.csr1kv_routing_driver.CSR1kvRoutingDriver"
 else
    db="csr1kv_ovs_$osn"
+   agent_driver="neutron.plugins.cisco.cfg_agent.dummy_driver.DummyRoutingDriver"
 fi
 sql_statement="SELECT id FROM hostingdevicetemplates WHERE id='11111110-2222-3333-4444-555555555555'"
 hasTemplate=`mysql -e "use $db; $sql_statement" | awk '/id/ { print "Yes" }'`
@@ -232,7 +234,7 @@ if [ "$hasRouterType" != "Yes" ]; then
     'CSR1kv_router','Neutron Router implemented in Cisco CSR1kv',
     '11111111-2222-3333-4444-555555555555', 6,
     'neutron.plugins.cisco.l3.scheduler.l3_router_hosting_device_scheduler.L3RouterHostingDeviceScheduler',
-    'neutron.plugins.cisco.cfg_agent.csr1kv.cisco_csr_network_driver.CiscoCSRDriver')"
+    '$agent_driver')"
     mysql -e "use $db; $sql_statement"
 else
    echo " Yes, it is."
