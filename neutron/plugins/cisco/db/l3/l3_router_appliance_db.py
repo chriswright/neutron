@@ -396,7 +396,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
                 acquired = self._dev_mgr.acquire_hosting_device_slots(
                     e_context, selected_hd, router,
                     r_hd_binding['router_type']['slot_need'],
-                    exclusive=r_hd_binding['share_hosting_device'])
+                    exclusive=not r_hd_binding['share_hosting_device'])
                 if acquired:
                     r_hd_binding.hosting_device_id = selected_hd['id']
                     self.remove_router_from_backlog(router['id'])

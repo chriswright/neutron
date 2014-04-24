@@ -111,7 +111,6 @@ class HostingDeviceDBMixin(
         LOG.debug(_("create_hosting_device_template() called"))
         hdt = hosting_device_template['hosting_device_template']
         tenant_id = self._get_tenant_id_for_create(context, hdt)
-
         #TODO(bobmel): check service types
         with context.session.begin(subtransactions=True):
             hdt_db = HostingDeviceTemplate(

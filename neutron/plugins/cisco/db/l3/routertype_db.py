@@ -35,15 +35,18 @@ class RoutertypeDbMixin(routertype.RoutertypePluginBase,
         Also binds it to the specified hosting device template.
         """
         LOG.debug("create_routertype() called. Contents %s", routertype)
-        r = routertype['routertype']
+        rt = routertype['routertype']
+        tenant_id = self._get_tenant_id_for_create(context, rt)
         with context.session.begin(subtransactions=True):
             routertype_db = RouterType(id=uuidutils.generate_uuid(),
-                                       name=r['name'],
-                                       description=r['description'],
-                                       template_id=r['template_id'],
-                                       slot_need=r['slot_need'],
-                                       scheduler=r['scheduler'],
-                                       cfg_agent_driver=r['cfg_agent_driver'])
+                                       tenant_id=tenant_id,
+                                       name=rt['name'],
+                                       description=rt['description'],
+                                       template_id=rt['template_id'],
+                                       shared=rt['shared'],
+                                       slot_need=rt['slot_need'],
+                                       scheduler=rt['scheduler'],
+                                       cfg_agent_driver=rt['cfg_agent_driver'])
             context.session.add(routertype_db)
         return self._make_routertype_dict(routertype_db)
 
@@ -87,9 +90,11 @@ class RoutertypeDbMixin(routertype.RoutertypePluginBase,
 
     def _make_routertype_dict(self, routertype, fields=None):
         res = {'id': routertype['id'],
+               'tenant_id': routertype['tenant_id'],
                'name': routertype['name'],
                'description': routertype['description'],
                'template_id': routertype['template_id'],
+               'shared': routertype['shared'],
                'slot_need': routertype['slot_need'],
                'scheduler': routertype['scheduler'],
                'cfg_agent_driver': routertype['cfg_agent_driver']}

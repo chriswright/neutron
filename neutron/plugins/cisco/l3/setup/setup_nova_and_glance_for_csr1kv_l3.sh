@@ -227,12 +227,12 @@ hasRouterType=`mysql -e "use $db; $sql_statement" | awk '/id/ { print "Yes" }'`
 if [ "$hasRouterType" != "Yes" ]; then
    echo " No, it is not. Registering it."
 
-   # Columns: id, name, description, template_id, slot_need, scheduler,
-   # cfg_agent_driver
+   # Columns: tenant_id, id, name, description, template_id, shared,
+   # slot_need, scheduler, cfg_agent_driver
    sql_statement="INSERT INTO routertypes VALUES
-   ('22221111-2222-3333-4444-555555555555',
+   ('$tenantId', '22221111-2222-3333-4444-555555555555',
     'CSR1kv_router','Neutron Router implemented in Cisco CSR1kv',
-    '11111111-2222-3333-4444-555555555555', 6,
+    '11111111-2222-3333-4444-555555555555', TRUE, 6,
     'neutron.plugins.cisco.l3.scheduler.l3_router_hosting_device_scheduler.L3RouterHostingDeviceScheduler',
     '$agent_driver')"
     mysql -e "use $db; $sql_statement"
@@ -248,12 +248,13 @@ hasRouterType=`mysql -e "use $db; $sql_statement" | awk '/id/ { print "Yes" }'`
 if [ "$hasRouterType" != "Yes" ]; then
    echo " No, it is not. Registering it."
 
-   # Columns: id, name, description, template_id, slot_need, scheduler,
-   # cfg_agent_driver
+   # Columns: tenant_id, id, name, description, template_id, shared,
+   # slot_need, scheduler, cfg_agent_driver
    sql_statement="INSERT INTO routertypes VALUES
-   ('22221112-2222-3333-4444-555555555555', 'NetworkNamespace_router',
+   ('$tenantId', '22221112-2222-3333-4444-555555555555',
+    'NetworkNamespace_router',
     'Neutron router implemented in Linux network namespace',
-    '11111110-2222-3333-4444-555555555555', 6,
+    '11111110-2222-3333-4444-555555555555', TRUE, 6,
     '', '')"
    mysql -e "use $db; $sql_statement"
 else

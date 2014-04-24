@@ -48,7 +48,7 @@ class CSR1kvRoutingDriver(RoutingDriverBase):
 
     def __init__(self, **device_params):
         try:
-            self._csr_host = device_params['ip_address']
+            self._csr_host = device_params['management_ip_address']
             self._csr_ssh_port = device_params['port']
             # Using defaults for user/password if not in device params
             self._csr_user = device_params.get('user', 'stack')

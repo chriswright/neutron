@@ -281,9 +281,9 @@ class CiscoCfgAgent(manager.Manager):
                 # Sort on hosting device
                 hosting_devices = self._sort_resources_per_hosting_device(
                     resources)
-                #Despatch process_services() for each hosting device
+                # Dispatch process_services() for each hosting device
                 pool = eventlet.GreenPool()
-                for device_id, resources in hosting_devices:
+                for device_id, resources in hosting_devices.items():
                     pool.spawn_n(self.process_services, device_id, resources)
                 pool.waitall()
                 self.fullsync = False
@@ -385,7 +385,7 @@ class CiscoCfgAgent(manager.Manager):
         'removed_routers' and 'all_routers'(flag)
         :return: None
         """
-        LOG.debug(_("Processing hosting device: %d"), hosting_device_id)
+        LOG.debug(_("Processing hosting device: %s"), hosting_device_id)
         # First we process routing service
         routers = resources.get('routers')
         if routers:
@@ -398,7 +398,7 @@ class CiscoCfgAgent(manager.Manager):
         if removed_routers:
             self.routing_service_helper._process_router_delete(
                 removed_routers)
-        LOG.debug(_("Processing for hosting device: %d completed"),
+        LOG.debug(_("Processing for hosting device: %s completed"),
                   hosting_device_id)
 
     def _process_backlogged_hosting_devices(self, context):

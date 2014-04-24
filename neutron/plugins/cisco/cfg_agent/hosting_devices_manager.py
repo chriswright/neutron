@@ -128,7 +128,7 @@ class HostingDevicesManager(object):
     def is_hosting_device_reachable(self, router_id, router):
         hd = router['hosting_device']
         hd_id = hd['id']
-        hd_mgmt_ip = hd['ip_address']
+        hd_mgmt_ip = hd['management_ip_address']
         #Modifying the 'created_at' to a date time object
         hd['created_at'] = datetime.datetime.strptime(hd['created_at'],
                                                       '%Y-%m-%d %H:%M:%S')
@@ -137,12 +137,12 @@ class HostingDevicesManager(object):
             if self._is_pingable(hd_mgmt_ip):
                 LOG.debug(_("Hosting device: %(hd_id)s @ %(ip)s for router: "
                             "%(id)s is reachable."),
-                          {'hd_id': hd_id, 'ip': hd['ip_address'],
+                          {'hd_id': hd_id, 'ip': hd['management_ip_address'],
                            'id': router_id})
                 return True
             LOG.debug(_("Hosting device: %(hd_id)s @ %(ip)s for router: "
                         "%(id)s is NOT reachable."),
-                      {'hd_id': hd_id, 'ip': hd['ip_address'],
+                      {'hd_id': hd_id, 'ip': hd['management_ip_address'],
                        'id': router_id, })
             hd['backlog_insertion_ts'] = max(
                 timeutils.utcnow(),
@@ -153,7 +153,7 @@ class HostingDevicesManager(object):
             self.clear_driver_connection(hd_id)
             LOG.debug(_("Hosting device: %(hd_id)s @ %(ip)s is now added "
                         "to backlog"), {'hd_id': hd_id,
-                                        'ip': hd['ip_address']})
+                                        'ip': hd['management_ip_address']})
         else:
             self.backlog_hosting_devices[hd_id]['routers'].append(router_id)
 
@@ -172,29 +172,30 @@ class HostingDevicesManager(object):
                                            hd['booting_time']):
                 LOG.info(_("Hosting device: %(hd_id)s @ %(ip)s hasn't passed "
                            "minimum boot time. Skipping it. "),
-                         {'hd_id': hd_id, 'ip': hd['ip_address']})
+                         {'hd_id': hd_id, 'ip': hd['management_ip_address']})
                 continue
             LOG.info(_("Checking hosting device: %(hd_id)s @ %(ip)s for "
                        "reachability."), {'hd_id': hd_id,
-                                          'ip': hd['ip_address']})
-            if self._is_pingable(hd['ip_address']):
+                                          'ip': hd['management_ip_address']})
+            if self._is_pingable(hd['management_ip_address']):
                 hd.pop('backlog_insertion_ts', None)
                 del self.backlog_hosting_devices[hd_id]
                 response_dict['reachable'].append(hd_id)
                 LOG.info(_("Hosting device: %(hd_id)s @ %(ip)s is now "
                            "reachable. Adding it to response"),
-                         {'hd_id': hd_id, 'ip': hd['ip_address']})
+                         {'hd_id': hd_id, 'ip': hd['management_ip_address']})
             else:
                 LOG.info(_("Hosting device: %(hd_id)s @ %(ip)s still not "
                            "reachable "), {'hd_id': hd_id,
-                                           'ip': hd['ip_address']})
+                                           'ip': hd['management_ip_address']})
                 if timeutils.is_older_than(
                         hd['backlog_insertion_ts'],
                         cfg.CONF.hosting_device_dead_timeout):
                     LOG.debug(_("Hosting device: %(hd_id)s @ %(ip)s hasn't "
                                 "been reachable for the last %(time)d "
                                 "seconds. Marking it dead."),
-                              {'hd_id': hd_id, 'ip': hd['ip_address'],
+                              {'hd_id': hd_id,
+                               'ip': hd['management_ip_address'],
                                'time': cfg.CONF.hosting_device_dead_timeout})
                     response_dict['dead'].append(hd_id)
                     hd.pop('backlog_insertion_ts', None)

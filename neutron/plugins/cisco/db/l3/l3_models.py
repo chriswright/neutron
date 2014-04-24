@@ -23,7 +23,7 @@ from neutron.db import models_v2
 from neutron.plugins.cisco.db.device_manager import hd_models
 
 
-class RouterType(model_base.BASEV2, models_v2.HasId):
+class RouterType(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     """Represents Neutron router types.
 
     A router type is associated with a with hosting device template.
@@ -40,6 +40,8 @@ class RouterType(model_base.BASEV2, models_v2.HasId):
                             sa.ForeignKey('hostingdevicetemplates.id',
                                           ondelete='CASCADE'))
     template = orm.relationship(hd_models.HostingDeviceTemplate)
+    # 'shared' is True if routertype is available to all tenants
+    shared = sa.Column(sa.Boolean, default=True, nullable=False)
     # The number of slots this router type consume in hosting device
     slot_need = sa.Column(sa.Integer, autoincrement=False)
     # module to be used as scheduler for router of this type
