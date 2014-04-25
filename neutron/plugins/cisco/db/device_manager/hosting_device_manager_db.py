@@ -441,9 +441,13 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
             logical resource.
         """
         template = hosting_device.template
+        credentials = (None if hosting_device.credentials is None
+                       else {'username': hosting_device.credentials.user_name,
+                             'password': hosting_device.credentials.password})
         return {'id': hosting_device.id,
                 'name': template.name,
                 'template_id': template.id,
+                'credentials': credentials,
                 'host_category': template.host_category,
                 'service_types': template.service_types,
                 'management_ip_address': hosting_device.management_port[

@@ -43,6 +43,7 @@ class HostingDeviceTemplate(model_base.BASEV2, models_v2.HasId,
     # id of default credentials (if any) for devices created from this template
     default_credentials_id = sa.Column(sa.String(36),
                                        sa.ForeignKey('devicecredentials.id'))
+    #TODO(bobmel): Evolve to support multiple mechanisms and protocol ports
     # 'configuration_mechanism' indicates how configurations are made
     configuration_mechanism = sa.Column(sa.String(255))
     # 'protocol_port' is udp/tcp port of hosting device. May be empty.
@@ -100,6 +101,7 @@ class HostingDevice(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
                                    sa.ForeignKey('ports.id',
                                                  ondelete="SET NULL"))
     management_port = orm.relationship(models_v2.Port)
+    #TODO(bobmel): Evolve to support multiple mgmt_ports, protocol ports
     # 'protocol_port' is udp/tcp port of hosting device. May be empty.
     protocol_port = sa.Column(sa.Integer)
     cfg_agent_id = sa.Column(sa.String(36),
