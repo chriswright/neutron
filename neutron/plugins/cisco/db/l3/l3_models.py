@@ -46,7 +46,8 @@ class RouterType(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     slot_need = sa.Column(sa.Integer, autoincrement=False)
     # module to be used as scheduler for router of this type
     scheduler = sa.Column(sa.String(255), nullable=False)
-    # module to be used by configuration agent for router of this type
+    #TODO(bobmel): Add workflow driver to be used in agent for this routertype
+    # module to be used by configuration agent for in-device configurations
     cfg_agent_driver = sa.Column(sa.String(255), nullable=False)
 
 

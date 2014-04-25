@@ -377,16 +377,16 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
                        'type': r_hd_binding['router_type_id']})
             return False
         with context.session.begin(subtransactions=True):
-            result = scheduler.schedule_router(self, context,
-                                                    r_hd_binding)
+            result = scheduler.schedule_router(self, context, r_hd_binding)
             if result is None:
                 # No running hosting device is able to host this router
                 # so backlog it for another scheduling attempt later.
                 self.backlog_router(r_hd_binding['router'])
                 # Inform device manager so that it can take appropriate
                 # measures, e.g., spin up more hosting device VMs.
+                routertype = r_hd_binding['router_type']
                 self._dev_mgr.report_hosting_device_shortage(
-                    context, r_hd_binding['router_type']['template'])
+                    context, routertype['template'], routertype['slot_need'])
                 return False
             else:
                 router = r_hd_binding['router']
@@ -583,7 +583,10 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
             LOG.error(_('DB inconsistency: No hosting info associated with '
                         'router %s'), router['id'])
             return
-        router['router_type_id'] = binding_info['router_type_id']
+        router['router_type'] = {
+            'id': binding_info.router_type.id,
+            'name': binding_info.router_type.name,
+            'cfg_agent_driver': binding_info.router_type.cfg_agent_driver}
         router['share_host'] = binding_info['share_hosting_device']
         if binding_info.router_type_id == self.get_namespace_router_type_id(
                 context):
@@ -597,23 +600,8 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_db_mixin):
         if binding_info.hosting_device is None:
             router['hosting_device'] = None
         else:
-            router['router_type'] = {
-                'id': binding_info.router_type.id,
-                'name': binding_info.router_type.name,
-                'cfg_agent_driver': binding_info.router_type.cfg_agent_driver}
-            hosting_device = binding_info.hosting_device
-            template = binding_info.hosting_device.template
-            router['hosting_device'] = {
-                'id': hosting_device.id,
-                'name': template.name,
-                'template_id': template.id,
-                'host_category': template.host_category,
-                'service_types': template.service_types,
-                'management_ip_address': hosting_device.management_port[
-                    'fixed_ips'][0]['ip_address'],
-                'protocol_port': hosting_device.protocol_port,
-                'created_at': str(hosting_device.created_at),
-                'booting_time': template.booting_time}
+            router['hosting_device'] = self._dev_mgr.get_device_info_for_agent(
+                binding_info.hosting_device)
 
     def _add_hosting_port_info(self, context, router, plugging_driver):
         """Adds hosting port information to router ports."""

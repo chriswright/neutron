@@ -214,9 +214,9 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                                 "device template %s"), id)
             return self._plugging_drivers.get(id)
 
-    def report_hosting_device_shortage(self, context, template):
+    def report_hosting_device_shortage(self, context, template, requested=0):
         """Used to report shortage of hosting devices based on <template>."""
-        self._dispatch_pool_maintenance_job(template)
+        self._dispatch_pool_maintenance_job(template, requested)
 
     def acquire_hosting_device_slots(self, context, hosting_device, resource,
                                      num, exclusive=False):
@@ -265,7 +265,8 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                             '%(id)s due to insufficent slot availability.'),
                           {'num': num, 'device': hosting_device['id'],
                            'id': resource['id']})
-                self._dispatch_pool_maintenance_job(hosting_device['template'])
+                self._dispatch_pool_maintenance_job(hosting_device['template'],
+                                                    num)
                 return False
             # handle any changes to exclusive usage by tenant
             if exclusive and hosting_device['tenant_bound'] is None:
@@ -432,6 +433,25 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                     devmgr_rpc.DeviceMgrCfgAgentNotify.hosting_device_removed(
                         context, hosting_info, False, cfg_agent)
 
+    def get_device_info_for_agent(self, hosting_device):
+        """ Returns information about <hosting_device> needed by config agent.
+
+            Convenience function that service plugins can use to populate
+            their resources with information about the device hosting their
+            logical resource.
+        """
+        template = hosting_device.template
+        return {'id': hosting_device.id,
+                'name': template.name,
+                'template_id': template.id,
+                'host_category': template.host_category,
+                'service_types': template.service_types,
+                'management_ip_address': hosting_device.management_port[
+                    'fixed_ips'][0]['ip_address'],
+                'protocol_port': hosting_device.protocol_port,
+                'created_at': str(hosting_device.created_at),
+                'booting_time': template.booting_time}
+
     def _process_non_responsive_hosting_device(self, context, hosting_device):
         """Host type specific processing of non responsive hosting devices.
 
@@ -464,18 +484,23 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
     def _core_plugin(self):
         return manager.NeutronManager.get_plugin()
 
-    def _dispatch_pool_maintenance_job(self, template):
+    def _dispatch_pool_maintenance_job(self, template, requested=0):
         mgr_context = neutron_context.get_admin_context()
         mgr_context.tenant_id = self.l3_tenant_id()
         self._gt_pool.spawn_n(self._maintain_hosting_device_pool, mgr_context,
-                              template)
+                              template, requested)
 
-    def _maintain_hosting_device_pool(self, context, template):
+    def _maintain_hosting_device_pool(self, context, template, requested=0):
         """Maintains the pool of hosting devices that are based on <template>.
 
         Ensures that the number of standby hosting devices (essentially
         service VMs) is kept at a suitable level so that resource creation is
         not slowed down by booting of the hosting device.
+
+        :param context: context for this operation
+        :param template: db object for hosting device template
+        :param requested: number of slots that were requested and which
+                          triggered this pool maintenance
         """
         # For now the pool size is only elastic for service VMs.
         if template['host_category'] != VM_CATEGORY:
@@ -487,18 +512,20 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
             return
         try:
             # Maintain a pool of approximately 'desired_slots_free' available
-            # for allocation. Approximately means:
-            # max(0, desired_slots_free-capacity) <= available_slots <=
+            # for allocation. Approximately means that
+            # abs(desired_slots_free-capacity) <= available_slots <=
             #                                       desired_slots_free+capacity
+            # The upper bound may temporarily be slightly larger due to the
+            # requested argument to this function.
             capacity = template['slot_capacity']
             if capacity == 0:
                 return
             desired = template['desired_slots_free']
             available = self._get_total_available_slots(
                 context, template['id'], capacity)
-            if available <= max(0, desired - capacity):
-                num_req = int(
-                    math.ceil((desired - available) / (1.0 * capacity)))
+            grow_threshold = min(abs(desired - capacity), requested)
+            if available <= grow_threshold:
+                num_req = int(math.ceil(grow_threshold / (1.0 * capacity)))
                 num_created = len(self._create_svc_vm_hosting_devices(
                     context, num_req, template))
                 if num_created < num_req:

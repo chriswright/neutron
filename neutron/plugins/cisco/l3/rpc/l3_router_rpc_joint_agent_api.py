@@ -57,7 +57,7 @@ class L3RouterJointAgentNotifyAPI(proxy.RpcProxy):
             svc_constants.DEVICE_MANAGER)
         ns_routertype_id = l3plugin.get_namespace_router_type_id(context)
         for router in routers:
-            if (router['router_type_id'] == ns_routertype_id and
+            if (router['router_type']['id'] == ns_routertype_id and
                     utils.is_extension_supported(l3plugin, L3AGENT_SCHED)):
                 agents = l3plugin.get_l3_agents_hosting_routers(
                     admin_context, [router['id']],
@@ -123,7 +123,7 @@ class L3RouterJointAgentNotifyAPI(proxy.RpcProxy):
         plugin = manager.NeutronManager.get_service_plugins().get(
             svc_constants.L3_ROUTER_NAT)
         namespace_routertype_id = plugin.get_namespace_router_type_id(context)
-        if router['router_type_id'] == namespace_routertype_id:
+        if router['router_type']['id'] == namespace_routertype_id:
             self._notification_fanout(context, 'router_deleted', router['id'])
         else:
             self._agent_notification(context, 'router_deleted', [router],
