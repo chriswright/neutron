@@ -40,6 +40,7 @@ from neutron.db import quota_db
 from neutron.extensions import portbindings
 from neutron.extensions import providernet
 from neutron import manager
+from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
 from neutron.openstack.common import uuidutils as uuidutils
@@ -81,8 +82,8 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                           n1kv_db_v2.NetworkProfile_db_mixin,
                           n1kv_db_v2.PolicyProfile_db_mixin,
                           network_db_v2.Credential_db_mixin,
-                          agentschedulers_db.AgentSchedulerDbMixin,
-                          agentschedulers_db.DhcpAgentSchedulerDbMixin):
+                          agentschedulers_db.DhcpAgentSchedulerDbMixin,
+                          quota_db.DbQuotaDriver):
 
     """
     Implement the Neutron abstractions using Cisco Nexus1000V.
@@ -98,7 +99,7 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
     supported_extension_aliases = ["provider", "agent",
                                    "n1kv", "network_profile",
                                    "policy_profile", "external-net",
-                                   "binding", "credential", "quotas"]
+                                   "binding", "credential", "quotas",
                                    "dhcp_agent_scheduler"]
 
     def __init__(self, configfile=None):
@@ -1211,9 +1212,11 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             svc_constants.L3_ROUTER_NAT)
         if l3plugin and l3_port_check:
             l3plugin.prevent_l3_port_deletion(context, id)
-            l3plugin.disassociate_floatingips(context, id)
-        self._send_delete_port_request(context, id)
-        return super(N1kvNeutronPluginV2, self).delete_port(context, id)
+        with context.session.begin(subtransactions=True):
+            if l3plugin:
+                l3plugin.disassociate_floatingips(context, id)
+            self._send_delete_port_request(context, id)
+            return super(N1kvNeutronPluginV2, self).delete_port(context, id)
 
     def get_port(self, context, id, fields=None):
         """
