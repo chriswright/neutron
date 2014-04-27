@@ -216,7 +216,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
 
     def report_hosting_device_shortage(self, context, template, requested=0):
         """Used to report shortage of hosting devices based on <template>."""
-        self._dispatch_pool_maintenance_job(template, requested)
+        self._dispatch_pool_maintenance_job(template)
 
     def acquire_hosting_device_slots(self, context, hosting_device, resource,
                                      num, exclusive=False):
@@ -488,13 +488,13 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
     def _core_plugin(self):
         return manager.NeutronManager.get_plugin()
 
-    def _dispatch_pool_maintenance_job(self, template, requested=0):
+    def _dispatch_pool_maintenance_job(self, template):
         mgr_context = neutron_context.get_admin_context()
         mgr_context.tenant_id = self.l3_tenant_id()
         self._gt_pool.spawn_n(self._maintain_hosting_device_pool, mgr_context,
-                              template, requested)
+                              template)
 
-    def _maintain_hosting_device_pool(self, context, template, requested=0):
+    def _maintain_hosting_device_pool(self, context, template):
         """Maintains the pool of hosting devices that are based on <template>.
 
         Ensures that the number of standby hosting devices (essentially
@@ -503,8 +503,6 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
 
         :param context: context for this operation
         :param template: db object for hosting device template
-        :param requested: number of slots that were requested and which
-                          triggered this pool maintenance
         """
         # For now the pool size is only elastic for service VMs.
         if template['host_category'] != VM_CATEGORY:
@@ -519,15 +517,13 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
             # for allocation. Approximately means that
             # abs(desired_slots_free-capacity) <= available_slots <=
             #                                       desired_slots_free+capacity
-            # The upper bound may temporarily be slightly larger due to the
-            # requested argument to this function.
             capacity = template['slot_capacity']
             if capacity == 0:
                 return
             desired = template['desired_slots_free']
             available = self._get_total_available_slots(
                 context, template['id'], capacity)
-            grow_threshold = min(abs(desired - capacity), requested)
+            grow_threshold = abs(desired - capacity)
             if available <= grow_threshold:
                 num_req = int(math.ceil(grow_threshold / (1.0 * capacity)))
                 num_created = len(self._create_svc_vm_hosting_devices(
@@ -540,7 +536,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                               'created': num_created})
             elif available >= desired + capacity:
                 num_req = int(
-                    math.ceil((available - desired) / (1.0 * capacity)))
+                    math.floor((available - desired) / (1.0 * capacity)))
                 num_deleted = self._delete_idle_service_vm_hosting_devices(
                     context, num_req, template)
                 if num_deleted < num_req:
@@ -563,7 +559,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                                                                template['id'])
         hosting_device_drv = self.get_hosting_device_driver(context,
                                                             template['id'])
-        if plugging_drv is None or hosting_device_drv is None:
+        if plugging_drv is None or hosting_device_drv is None or num <= 0:
             return hosting_devices
         # These resources are owned by the L3AdminTenant
         dev_data = {'template_id': template['id'],
@@ -617,7 +613,7 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
                                                                template['id'])
         hosting_device_drv = self.get_hosting_device_driver(context,
                                                             template['id'])
-        if plugging_drv is None or hosting_device_drv is None:
+        if plugging_drv is None or hosting_device_drv is None or num <= 0:
             return num_deleted
         query = context.session.query(HostingDevice)
         query = query.outerjoin(
@@ -678,16 +674,23 @@ class HostingDeviceManagerMixin(hosting_devices_db.HostingDeviceDBMixin):
             context.session.delete(hosting_device)
 
     def _get_total_available_slots(self, context, template_id, capacity):
-        """Returns available slots sum for devices based on <template_id>."""
-        query = context.session.query(func.sum(SlotAllocation.num_allocated))
-        total_allocated = query.filter_by(
-            template_id=template_id,
-            tenant_bound=expr.null()).one()[0] or 0
-        query = context.session.query(func.count(HostingDevice.id))
-        num_devices = query.filter_by(template_id=template_id,
-                                      admin_state_up=True,
-                                      tenant_bound=expr.null()).one()[0] or 0
-        return max(0, int(num_devices * capacity - total_allocated))
+        """Returns available slots in idle devices based on <template_id>.
+
+        Only slots in tenant unbound hosting devices are counted to ensure
+        there is always hosting device slots available regardless of tenant."""
+        query = context.session.query(HostingDevice.id)
+        query = query.outerjoin(
+            SlotAllocation,
+            HostingDevice.id == SlotAllocation.hosting_device_id)
+        query = query.filter(
+            HostingDevice.template_id == template_id,
+            HostingDevice.admin_state_up == expr.true(),
+            HostingDevice.tenant_bound == expr.null())
+        query = query.group_by(HostingDevice.id)
+        query = query.having(
+            func.sum(SlotAllocation.num_allocated) == expr.null())
+        num_hosting_devices = query.count()
+        return num_hosting_devices * capacity
 
     def _exclusively_used(self, context, hosting_device, tenant_id):
         """Checks if only <tenant_id>'s resources use <hosting_device>."""
